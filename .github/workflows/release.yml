@@ -1,0 +1,193 @@
+name: Release
+
+# Tag a commit and the downloads appear:
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# Artifacts: a Linux tarball and .deb, a macOS .dmg per architecture, a Windows .zip, and a
+# .sha256 beside each one. Nothing is code-signed except the macOS bundle, which is signed
+# ad-hoc — see README "Download" for what that means for the user.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: linux (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu-24.04-arm is GitHub's hosted arm64 runner; it is newer than the x86 one, hence
+          # `experimental` — if it is unavailable in your account the x86 build still releases.
+          - arch: x86_64
+            runner: ubuntu-24.04
+            experimental: false
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            experimental: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-${{ matrix.arch }}
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+
+      - name: Build
+        run: cargo build --locked --release
+
+      - name: Package tarball
+        run: |
+          V=${GITHUB_REF_NAME#v}
+          D=notecraft-$V-${{ matrix.arch }}-linux
+          mkdir -p dist/$D
+          cp target/release/notecraft dist/$D/
+          cp packaging/linux/notecraft.desktop dist/$D/
+          cp assets/notecraft.svg dist/$D/
+          cp README.md LICENSE dist/$D/
+          tar -C dist -czf dist/$D.tar.gz $D
+          ( cd dist && sha256sum $D.tar.gz > $D.tar.gz.sha256 )
+
+      - name: Debian package
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+
+      - name: Build .deb
+        run: |
+          cargo deb --no-build --no-strip
+          V=${GITHUB_REF_NAME#v}
+          mkdir -p dist
+          cp target/debian/*.deb dist/notecraft_${V}_${{ matrix.arch }}.deb
+          ( cd dist && sha256sum notecraft_${V}_${{ matrix.arch }}.deb > notecraft_${V}_${{ matrix.arch }}.deb.sha256 )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    name: macos (${{ matrix.arch }})
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            target: aarch64-apple-darwin
+          - arch: x86_64
+            target: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-${{ matrix.arch }}
+
+      - name: Build
+        run: cargo build --locked --release --target ${{ matrix.target }}
+
+      - name: Bundle and sign
+        run: |
+          V=${GITHUB_REF_NAME#v}
+          chmod +x packaging/macos/make-app.sh
+          packaging/macos/make-app.sh \
+            "target/${{ matrix.target }}/release/notecraft" "$V" "dist"
+          mv "dist/NoteCraft-$V.dmg" "dist/NoteCraft-$V-${{ matrix.arch }}.dmg"
+          ( cd dist && shasum -a 256 "NoteCraft-$V-${{ matrix.arch }}.dmg" \
+              > "NoteCraft-$V-${{ matrix.arch }}.dmg.sha256" )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    name: windows (x86_64)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-x86_64
+
+      - name: Build
+        run: cargo build --locked --release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          $d = "notecraft-$v-windows-x64"
+          New-Item -ItemType Directory -Force -Path "dist/$d" | Out-Null
+          Copy-Item target/release/notecraft.exe "dist/$d/"
+          Copy-Item README.md, LICENSE "dist/$d/"
+          Compress-Archive -Path "dist/$d/*" -DestinationPath "dist/$d.zip" -Force
+          $h = (Get-FileHash "dist/$d.zip" -Algorithm SHA256).Hash.ToLower()
+          "$h  $d.zip" | Out-File -Encoding ascii "dist/$d.zip.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: publish
+    needs: [linux, macos, windows]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List downloads
+        run: ls -l dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+          body: |
+            NoteCraft ${{ github.ref_name }} — notes, todos and ideas as plain markdown.
+
+            **Linux** — `install.sh` (no root), or the `.deb`, or the tarball.
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/mjb73/notecraft/main/install.sh | sh
+            ```
+            **macOS** — open the `.dmg` for your Mac (`aarch64` for Apple silicon, `x86_64` for Intel)
+            and drag NoteCraft to Applications. The app is signed ad-hoc, so the first launch needs
+            right-click → Open (or System Settings → Privacy & Security → Open Anyway).
+
+            **Windows** — unzip and run `notecraft.exe`. SmartScreen may warn about an unsigned
+            download: More info → Run anyway.
+
+            Your notes are plain markdown in `Documents/NoteCraft`; nothing leaves your machine.

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=NoteCraft
+GenericName=Notes
+Comment=Notes, todos and ideas — plain markdown in a folder you choose
+Exec=notecraft
+TryExec=notecraft
+Icon=notecraft
+Terminal=false
+Categories=Office;TextEditor;Utility;
+Keywords=notes;notebook;todo;markdown;journal;ideas;
+StartupNotify=true
+StartupWMClass=notecraft
+SingleMainWindow=true

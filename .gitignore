@@ -1,0 +1,6 @@
+/target
+/dist
+*.dmg
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,79 @@
+[package]
+name = "notecraft"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.90"
+description = "NoteCraft — a fast native notes, todos and idea-capture app. Plain markdown on disk."
+authors = ["Michael Bayes"]
+license = "MIT"
+repository = "https://github.com/mjb73/notecraft"
+homepage = "https://github.com/mjb73/notecraft"
+readme = "README.md"
+keywords = ["notes", "markdown", "todo", "egui", "note-taking"]
+categories = ["gui", "text-editors"]
+exclude = ["vendor/**", ".github/**"]
+
+[dependencies]
+eframe = { version = "0.33", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
+egui = "0.33"
+egui_extras = { version = "0.33", features = ["image", "file"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+arboard = "3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+directories = "6"
+# Native file choosers: the XDG desktop portal on Linux (no GTK headers to build against),
+# IFileOpenDialog on Windows, NSOpenPanel on macOS.
+rfd = "0.17"
+# Spelling: the two word lists are embedded gzipped (1.5 MB instead of 7 MB), decompressed once
+# when spelling is switched on.
+flate2 = "1"
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+# Dragging a picture *out* of the app: winit only implements the XDND destination half, so the
+# source half (selection owner, pointer polling, XdndEnter/Position/Drop) is spoken directly.
+# The same crate and version winit already uses, so this costs nothing in the dependency graph.
+x11rb = "0.13"
+raw-window-handle = "0.6"
+
+[target.'cfg(windows)'.dependencies]
+# AttachConsole, so the CLI verbs (`notecraft new "..."`) print into the terminal that started
+# them even though the binary is a windowed app (no console window on a double-click).
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
+
+[build-dependencies]
+# The exe's icon, version resource and DPI-awareness manifest. Compiled on every host (a build
+# script is host code) but only *used* when the target is Windows, which is what makes
+# cross-compiling from Linux work too.
+winresource = "0.1"
+
+[patch.crates-io]
+# Local patch so the X11 drop target also accepts image payloads (browsers drag an image as
+# image/png, which upstream winit rejects outright). Only the DnD code in vendor/winit is
+# touched; see the NOTE comments there. Not compiled on Windows or macOS.
+winit = { path = "vendor/winit" }
+
+[profile.release]
+opt-level = 2
+strip = true
+lto = "thin"
+codegen-units = 4
+
+[package.metadata.deb]
+maintainer = "Michael Bayes <mjbayes@pm.me>"
+copyright = "2026 Michael Bayes"
+license-file = ["LICENSE", "0"]
+section = "utils"
+priority = "optional"
+depends = "$auto"
+extended-description = """\
+A fast, native notes app: notebooks, sections and pages kept as plain markdown files in a folder \
+you choose; a block editor with read mode, tasks with due dates, tags, image attachments, screen \
+snips, spellcheck, and HTML/PDF/text export. No account, no database, no lock-in."""
+assets = [
+    ["target/release/notecraft", "usr/bin/", "755"],
+    ["packaging/linux/notecraft.desktop", "usr/share/applications/", "644"],
+    ["assets/notecraft.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+]

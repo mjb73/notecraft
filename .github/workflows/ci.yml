@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # winit/eframe load X11 and Wayland at run time (dlopen), so this is mostly belt and braces —
+      # but a missing libxkbcommon is the classic Linux build failure, so it is installed anyway.
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+
+      - name: Build
+        run: cargo build --locked --all-targets
+
+      - name: Test
+        run: cargo test --locked
+
+  # The binary has to compile for all four targets, not only the one this runner happens to be.
+  # A cfg mistake in platform.rs is a compile error here rather than a broken download for users.
+  check-targets:
+    name: check (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            apt: true
+          - target: aarch64-unknown-linux-gnu
+            apt: true
+          - target: x86_64-pc-windows-gnu
+            apt: false
+          - target: x86_64-apple-darwin
+            apt: false
+          - target: aarch64-apple-darwin
+            apt: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Linux build dependencies
+        if: matrix.apt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+
+      # `cargo check` only needs rustc's own std for the target, so no cross linker and no SDK.
+      - name: Check
+        run: cargo check --locked --target ${{ matrix.target }}

@@ -1,0 +1,23 @@
+Word lists for the spelling checker
+===================================
+
+assets/en_GB.words.gz and assets/en_US.words.gz are derived from the hunspell dictionaries that
+LibreOffice ships, `dictionaries/en/en_GB.dic` + `en_GB.aff` and `en/en_US.dic` + `en_US.aff`
+(https://github.com/LibreOffice/dictionaries). Each dictionary was expanded to every inflected form
+with hunspell's `unmunch`, lower-cased, restricted to letters and apostrophes, de-duplicated and
+sorted, then gzipped:
+
+    unmunch en_GB.dic en_GB.aff | (lower-case, de-dupe, sort) | gzip -9 > en_GB.words.gz
+    unmunch en_US.dic en_US.aff | ...                         | gzip -9 > en_US.words.gz
+
+en_GB: 434,737 words (from 97,199 stems).  en_US: 121,252 words (from 49,568 stems).
+
+Licences, as stated in the dictionaries' own headers:
+
+* en_GB (MySpell/Hunspell British English) - LGPL 2.1 or later, with the permission notice in
+  en_GB.aff's header.
+* en_US - from SCOWL (Spell Checker Oriented Word Lists) by Kevin Atkinson, which is distributed
+  under the MIT/BSD-style terms reproduced in en_US.aff's header.
+
+Nothing else in NoteCraft is derived from these files: the words are only ever looked up, never
+written back, and the note's own text never leaves the machine.
