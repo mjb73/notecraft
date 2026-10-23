@@ -21,6 +21,10 @@ Built in Rust with [egui](https://github.com/emilk/egui), so it runs as one nati
 
 Each download has a `.sha256` beside it.
 
+The Linux binaries are built on Debian 12, so they need **glibc 2.36** — Ubuntu 23.04+, Debian 12+,
+Mint 22+, Fedora 38+, RHEL 10+. On an older distribution (Ubuntu 22.04, Debian 11, Mint 21) build it
+from source: `cargo build --release` links against whatever glibc you have.
+
 **The builds are not code-signed by a commercial certificate.** That is what the extra click is
 about:
 
@@ -133,10 +137,12 @@ install -Dm755 target/release/notecraft ~/.local/bin/notecraft
 install -Dm644 packaging/linux/notecraft.desktop ~/.local/share/applications/notecraft.desktop
 install -Dm644 assets/notecraft.svg ~/.local/share/icons/hicolor/scalable/apps/notecraft.svg
 
-# Linux, system-wide, as a .deb
+# Linux, a .deb (dpkg-deb or plain ar+tar; arch is amd64 or arm64)
+packaging/linux/make-deb.sh target/release/notecraft 1.0.0 amd64 dist
+# ...or, if you have cargo-deb, from `[package.metadata.deb]` in Cargo.toml
 cargo install cargo-deb && cargo deb
 
-# macOS: a real .app bundle (and a .dmg when hdiutil is available)
+# macOS: a real .app bundle (and a .dmg with the Applications shortcut, when hdiutil exists)
 packaging/macos/make-app.sh target/release/notecraft 1.0.0 dist
 ```
 

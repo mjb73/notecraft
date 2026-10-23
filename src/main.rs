@@ -201,12 +201,6 @@ fn main() -> eframe::Result<()> {
             }
         })
         .collect();
-    apply_backend(backend_choice());
-    if software_requested() {
-        // Safe: still single-threaded, before eframe initialises the GL context.
-        unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
-        eprintln!("notecraft: software rendering");
-    }
     let cmd = args.first().map(|s| s.as_str()).unwrap_or("gui");
     let root = vault_root();
 
@@ -322,6 +316,14 @@ fn main() -> eframe::Result<()> {
 }
 
 fn run_gui(root: PathBuf) -> eframe::Result<()> {
+    // Backend choice and software rendering belong to the window and nowhere else: a CLI verb like
+    // `notecraft tasks` must print the todos, not which windowing system it would have used.
+    apply_backend(backend_choice());
+    if software_requested() {
+        // Safe: still single-threaded, before eframe initialises the GL context.
+        unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
+        eprintln!("notecraft: software rendering");
+    }
     // One window per vault. Two would be two writers racing over the same pages, and the second
     // launch would simply look like nothing happened. The lock is released by the OS on exit.
     let Some(_lock) = platform::window_lock() else {

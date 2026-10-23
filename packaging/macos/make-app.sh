@@ -30,11 +30,17 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || \
     echo "note: codesign unavailable, leaving the bundle unsigned" >&2
 
-# A dmg is the thing people expect to click. HFS+ keeps it readable on older macOS too.
+# A dmg is the thing people expect to click. HFS+ keeps it readable on older macOS too, and the
+# Applications symlink is what makes "drag NoteCraft to Applications" possible without opening a
+# second Finder window — without it the volume shows only the app and nowhere to drop it.
 if command -v hdiutil >/dev/null 2>&1; then
-    rm -f "$OUT/NoteCraft-$VERSION.dmg"
-    hdiutil create -quiet -volname "NoteCraft $VERSION" -srcfolder "$APP" \
+    rm -rf "$OUT/dmg" "$OUT/NoteCraft-$VERSION.dmg"
+    mkdir -p "$OUT/dmg"
+    cp -R "$APP" "$OUT/dmg/"
+    ln -s /Applications "$OUT/dmg/Applications"
+    hdiutil create -quiet -volname "NoteCraft $VERSION" -srcfolder "$OUT/dmg" \
         -ov -format UDZO "$OUT/NoteCraft-$VERSION.dmg"
+    rm -rf "$OUT/dmg"
     echo "$OUT/NoteCraft-$VERSION.dmg"
 else
     echo "$APP"

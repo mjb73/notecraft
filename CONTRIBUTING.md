@@ -55,3 +55,12 @@ git push origin main --tags
 
 The `Release` workflow builds the Linux tarball and `.deb`, the macOS `.dmg` per architecture, the
 Windows `.zip`, and attaches them plus `.sha256` files to the GitHub release.
+
+The Linux legs build inside a Debian 12 container on purpose (`container: node:22-bookworm`): the
+glibc of the build machine becomes the glibc every download needs. Building on the runner image
+itself set that floor to 2.39, which shut out Debian 12, Mint 22 and Fedora 38 — they install and
+then refuse to start with "version `GLIBC_2.39' not found". `make-deb.sh` reads the real floor off
+the binary with `readelf`, so `Depends:` can never claim less than the build used.
+
+After publishing, check the downloads rather than the asset list: `readelf --version-info` on the
+extracted Linux binary, and `7z l NoteCraft-*.dmg` should show `Applications` beside `NoteCraft.app`.

@@ -22,6 +22,12 @@ jobs:
   linux:
     name: linux (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    # Built inside an old-base image on purpose. The glibc a binary is linked against becomes the
+    # glibc every user needs, and building on the runner image itself set that floor to 2.39
+    # (Ubuntu 24.04) — which refuses to start on Debian 12, Mint 22 or Fedora 38. Debian 12 gives
+    # 2.36. The image is `node:` rather than `debian:` because a container job runs the `uses:`
+    # actions inside the container, and those need node, git and curl.
+    container: node:22-bookworm
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
@@ -30,27 +36,35 @@ jobs:
           # ubuntu-24.04-arm is GitHub's hosted arm64 runner; it is newer than the x86 one, hence
           # `experimental` — if it is unavailable in your account the x86 build still releases.
           - arch: x86_64
+            debarch: amd64
             runner: ubuntu-24.04
             experimental: false
           - arch: aarch64
+            debarch: arm64
             runner: ubuntu-24.04-arm
             experimental: true
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: linux-${{ matrix.arch }}
-
-      - name: Build dependencies
+      - name: Toolchain and build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential pkg-config ca-certificates libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain 1.90
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Build
         run: cargo build --locked --release
+
+      # Printed so the log itself proves the floor: a release whose `Depends: libc6 (>= …)` claims
+      # an older glibc than the build used installs and then dies at load with a version error.
+      - name: Report the glibc floor
+        run: |
+          echo "highest glibc symbol requested by the binary:"
+          readelf --version-info target/release/notecraft \
+            | grep -o 'GLIBC_[0-9][0-9.]*' | sort -uV | tail -3
 
       - name: Package tarball
         run: |
@@ -62,20 +76,17 @@ jobs:
           cp assets/notecraft.svg dist/$D/
           cp README.md LICENSE dist/$D/
           tar -C dist -czf dist/$D.tar.gz $D
-          ( cd dist && sha256sum $D.tar.gz > $D.tar.gz.sha256 )
 
       - name: Debian package
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deb
-
-      - name: Build .deb
         run: |
-          cargo deb --no-build --no-strip
           V=${GITHUB_REF_NAME#v}
-          mkdir -p dist
-          cp target/debian/*.deb dist/notecraft_${V}_${{ matrix.arch }}.deb
-          ( cd dist && sha256sum notecraft_${V}_${{ matrix.arch }}.deb > notecraft_${V}_${{ matrix.arch }}.deb.sha256 )
+          chmod +x packaging/linux/make-deb.sh
+          packaging/linux/make-deb.sh target/release/notecraft "$V" ${{ matrix.debarch }} dist
+
+      - name: Checksums
+        run: |
+          cd dist
+          for f in *.tar.gz *.deb; do sha256sum "$f" > "$f.sha256"; done
 
       - uses: actions/upload-artifact@v4
         with:
