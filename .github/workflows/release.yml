@@ -138,6 +138,11 @@ jobs:
   windows:
     name: windows (x86_64)
     runs-on: windows-2022
+    # Static C runtime on purpose. The default MSVC build imports VCRUNTIME140.dll, which comes from
+    # the Visual C++ redistributable — present on most PCs, absent on a clean install, where the zip
+    # then fails to start with "VCRUNTIME140.dll was not found". This makes the exe self-contained.
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
     steps:
       - uses: actions/checkout@v4
 
@@ -145,10 +150,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: windows-x86_64
+          key: windows-x86_64-static-crt
 
       - name: Build
         run: cargo build --locked --release
+
+      # Proves the flag did what it says: no vcruntime in the import table.
+      - name: Check the runtime dependency
+        shell: pwsh
+        run: |
+          cmd /c 'findstr /M /C:"VCRUNTIME140.dll" target\release\notecraft.exe' | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error "still imports VCRUNTIME140.dll - the static CRT flag did not apply"
+            exit 1
+          }
+          Write-Host "no VCRUNTIME140.dll import: the exe is self-contained"
 
       - name: Package
         shell: pwsh
