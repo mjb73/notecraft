@@ -21,9 +21,10 @@ Built in Rust with [egui](https://github.com/emilk/egui), so it runs as one nati
 
 Each download has a `.sha256` beside it.
 
-The Linux binaries are built on Debian 12, so they need **glibc 2.36** — Ubuntu 23.04+, Debian 12+,
-Mint 22+, Fedora 38+, RHEL 10+. On an older distribution (Ubuntu 22.04, Debian 11, Mint 21) build it
-from source: `cargo build --release` links against whatever glibc you have.
+The Linux binaries are built inside Debian 12 and need **glibc 2.35** — Ubuntu 22.04+, Debian 12+,
+Mint 21+, Fedora 36+. (`readelf --version-info` on the download reports the exact floor, and the
+`.deb` declares the same number.) On anything older, build from source: `cargo build --release`
+links against whatever glibc you have.
 
 **The builds are not code-signed by a commercial certificate.** That is what the extra click is
 about:

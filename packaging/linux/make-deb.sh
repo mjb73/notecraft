@@ -58,9 +58,10 @@ Description: native notes, todos and ideas as plain markdown
  No account, no database and no network access; the pages are yours, on disk.
 EOF
 
-# A .deb is an ar archive of exactly these three members.
+# A .deb is an ar archive of exactly these three members, and the control member holds
+# ./control at its root (not ./DEBIAN/control — that is the build tree, not the archive).
 printf '2.0\n' > "$WORK/debian-binary"
-tar -cJf "$WORK/control.tar.xz" -C "$STAGE" ./DEBIAN
+tar -cJf "$WORK/control.tar.xz" -C "$STAGE/DEBIAN" .
 tar -cJf "$WORK/data.tar.xz" -C "$STAGE" ./usr
 
 mkdir -p "$OUT"
