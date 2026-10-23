@@ -160,11 +160,15 @@ jobs:
         shell: pwsh
         run: |
           cmd /c 'findstr /M /C:"VCRUNTIME140.dll" target\release\notecraft.exe' | Out-Null
-          if ($LASTEXITCODE -eq 0) {
+          # findstr exits 1 when the string is absent, which is the result we want; PowerShell would
+          # otherwise fail the step on that non-zero exit code.
+          $found = $LASTEXITCODE -eq 0
+          if ($found) {
             Write-Error "still imports VCRUNTIME140.dll - the static CRT flag did not apply"
             exit 1
           }
           Write-Host "no VCRUNTIME140.dll import: the exe is self-contained"
+          exit 0
 
       - name: Package
         shell: pwsh
