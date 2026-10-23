@@ -15,9 +15,9 @@ Built in Rust with [egui](https://github.com/emilk/egui), so it runs as one nati
 
 | Platform | How |
 | --- | --- |
-| **Linux** (x86_64, aarch64) | `curl -fsSL https://raw.githubusercontent.com/mjb73/notecraft/main/install.sh \| sh` — or the `.deb` from [Releases](../../releases), or the tarball |
-| **macOS** (Apple silicon, Intel) | `.dmg` from [Releases](../../releases) — drag NoteCraft to Applications |
-| **Windows** (x64) | `.zip` from [Releases](../../releases) — unzip, run `notecraft.exe` |
+| **Linux** (x86_64, aarch64) | `curl -fsSL https://raw.githubusercontent.com/mjb73/notecraft/main/install.sh \| sh` — or the `.deb` from [Releases](https://github.com/mjb73/notecraft/releases), or the tarball |
+| **macOS** (Apple silicon, Intel) | `.dmg` from [Releases](https://github.com/mjb73/notecraft/releases) — drag NoteCraft to Applications |
+| **Windows** (x64) | `.zip` from [Releases](https://github.com/mjb73/notecraft/releases) — unzip, run `notecraft.exe` |
 
 Each download has a `.sha256` beside it.
 
