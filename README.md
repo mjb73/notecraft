@@ -177,6 +177,11 @@ and that file is not compiled on Windows or macOS.
   into the window does nothing there. Paste (`Ctrl+V`) and **Attach** work; launch with `--x11`
   (XWayland) if you want drag and drop. NoteCraft picks X11 automatically when an X server is
   reachable.
+- **Dragging an image straight out of a browser does not work on Windows or macOS.** A browser
+  offers a dragged image as a *virtual file* (a file that does not exist on disk), and the toolkit
+  only accepts real files (`CF_HDROP`), so no drop event is produced at all. Drag the picture to the
+  desktop first and drop that file in, or right-click it → **Copy image** and press `Ctrl+V` in
+  NoteCraft. Files dragged from Explorer/Finder work normally.
 - **Dragging a picture out** of the window is an X11 feature (a hand-written XDND source). On
   Wayland, macOS and Windows, right-click the picture and copy it instead.
 - **PDF export** needs one of WeasyPrint, wkhtmltopdf, or a Chromium-family browser (Microsoft Edge
