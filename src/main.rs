@@ -15,6 +15,7 @@
 mod app;
 mod attach;
 mod doc;
+mod dropped;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod dragout;
 mod export;
@@ -25,6 +26,8 @@ mod platform;
 mod spell;
 mod theme;
 mod vault;
+#[cfg(windows)]
+mod windows_dnd;
 
 use std::path::PathBuf;
 
@@ -32,6 +35,20 @@ use std::path::PathBuf;
 /// and without a logger installed those messages vanish silently (which is how
 /// a blank image looked like a crash).
 struct StderrLogger;
+
+/// The same log, kept in a file as well as on stderr.
+///
+/// On Windows a windowed app has no stderr anyone can see, so a report like "dragging from the
+/// browser does nothing" is unfalsifiable without it. The file lives beside the settings, is
+/// rewritten every launch, and never grows past a few hundred KB because dependency chatter is
+/// filtered out in `enabled`.
+static LOG_PATH: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+
+fn log_path() -> Option<&'static std::path::PathBuf> {
+    LOG_PATH
+        .get_or_init(platform::log_file_path)
+        .as_ref()
+}
 
 impl log::Log for StderrLogger {
     fn enabled(&self, meta: &log::Metadata) -> bool {
@@ -47,7 +64,21 @@ impl log::Log for StderrLogger {
             || (meta.target().starts_with("winit") && meta.level() <= log::Level::Info)
     }
     fn log(&self, record: &log::Record) {
-        eprintln!("[{} {}] {}", record.level(), record.target(), record.args());
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        let line = format!("[{} {}] {}", record.level(), record.target(), record.args());
+        eprintln!("{line}");
+        if let Some(path) = log_path() {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                let _ = writeln!(f, "{line}");
+            }
+        }
     }
     fn flush(&self) {}
 }
@@ -324,6 +355,13 @@ fn run_gui(root: PathBuf) -> eframe::Result<()> {
         unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
         eprintln!("notecraft: software rendering");
     }
+    // A one-line session marker, so a log sent in by someone else can be matched to a version and
+    // a vault. Also what creates the log file on a run that otherwise never warns.
+    log::info!(
+        "notecraft {} starting, vault {}",
+        env!("CARGO_PKG_VERSION"),
+        root.display()
+    );
     // One window per vault. Two would be two writers racing over the same pages, and the second
     // launch would simply look like nothing happened. The lock is released by the OS on exit.
     let Some(_lock) = platform::window_lock() else {

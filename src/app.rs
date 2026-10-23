@@ -399,6 +399,14 @@ pub struct NoteCraft {
     /// numbers, so the size follows the corner exactly and nothing accumulates from frame to frame —
     /// an `old width + drag delta` form re-adds last frame's growth and runs away from the pointer.
     resizing: Option<(usize, f32, f32)>,
+    /// Drops from our own Windows drop target (see `windows_dnd`), which is the only way a browser
+    /// image can reach the app there: the toolkit accepts real files only.
+    #[cfg(windows)]
+    win_dnd: Option<std::sync::mpsc::Receiver<crate::windows_dnd::Dropped>>,
+    /// Whether registering that target was attempted — OLE refuses on some systems and it must not
+    /// be retried every frame.
+    #[cfg(windows)]
+    win_dnd_tried: bool,
     /// Screen grab asked for by a button or a shortcut, started on the next frame (when the
     /// `egui::Context` is at hand to hide and restore the window).
     snip_request: bool,
@@ -1516,6 +1524,10 @@ impl NoteCraft {
             resizing: None,
             drag_rx: None,
             x11_window: None,
+            #[cfg(windows)]
+            win_dnd: None,
+            #[cfg(windows)]
+            win_dnd_tried: false,
             pending_snip: None,
             snip_request: false,
             snip: None,
@@ -6676,6 +6688,64 @@ impl NoteCraft {
     /// clipboard becomes an attachment. Returns true when something was attached.
     /// Every attempt is logged: a silent failure here is indistinguishable from
     /// "the key never arrived", which is what made this hard to pin down.
+    /// Register our own OLE drop target on the window, once, and attach anything it delivered.
+    ///
+    /// Only Windows needs this: `winit` asks a drag source for `CF_HDROP` alone, and a browser offers
+    /// a dragged image as a virtual file instead, so without this the drag never becomes an event.
+    #[cfg(windows)]
+    fn windows_drops(&mut self, frame: &mut eframe::Frame) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        if !self.win_dnd_tried {
+            self.win_dnd_tried = true;
+            if let Ok(handle) = frame.window_handle() {
+                if let RawWindowHandle::Win32(w) = handle.as_raw() {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    if crate::windows_dnd::install(w.hwnd.get() as isize, tx) {
+                        self.win_dnd = Some(rx);
+                        dnd_log("windows drop target installed");
+                    } else {
+                        dnd_log("windows drop target refused by OLE; the toolkit's own handler stays");
+                    }
+                }
+            }
+        }
+        let Some(rx) = &self.win_dnd else { return };
+        let mut items = Vec::new();
+        while let Ok(item) = rx.try_recv() {
+            items.push(item);
+        }
+        for item in items {
+            {
+                match item {
+                    crate::windows_dnd::Dropped::Paths(paths) => {
+                        dnd_log(&format!("windows drop: {} real file(s)", paths.len()));
+                        self.attach_paths(&paths);
+                    }
+                    crate::windows_dnd::Dropped::Hover(on) => {
+                        // The toolkit's own hover events stopped when we took the drop target over.
+                        if on && !self.drop_hover {
+                            self.flash("drag detected — release to attach");
+                        }
+                        self.drop_hover = on;
+                    }
+                    crate::windows_dnd::Dropped::Refused(formats) => {
+                        dnd_log(&format!("windows drop: nothing readable, source offered {formats}"));
+                        self.flash("that drop held nothing NoteCraft can read");
+                    }
+                    crate::windows_dnd::Dropped::Blobs(blobs) => {
+                        dnd_log(&format!("windows drop: {} virtual file(s)", blobs.len()));
+                        let paths = blob_files(&blobs);
+                        if paths.is_empty() {
+                            self.flash("could not read what was dropped");
+                        } else {
+                            self.attach_paths(&paths);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn paste_from_clipboard(&mut self) -> bool {
         if self.page.is_none() {
             dnd_log("paste: no page open");
@@ -8003,6 +8073,10 @@ impl eframe::App for NoteCraft {
         // A picture can only be dragged out through XDND, which needs an X11 window of our own: on a
         // native Wayland window there is none, and the drag says so instead of doing nothing.
         self.x11_window = x11_window_of(frame);
+        // Windows: take the window's drop target for ourselves so browser drags (virtual files,
+        // PNG bytes) arrive at all, and drain whatever landed since the last frame.
+        #[cfg(windows)]
+        self.windows_drops(frame);
         // A theme change has to reach egui's own widgets, not only the app's painted ones.
         self.sync_theme(ctx);
         self.tick(ctx);
@@ -8422,6 +8496,60 @@ fn resize_width_from(pointer_x: f32, grab: f32, anchor: f32, box_w: f32, grow: f
 /// otherwise invisible (the compositor can swallow a drag before any app code
 /// runs), so every hover/drop/attach step is recorded for diagnosis — including
 /// the outgoing half of a drag, which lives in `dragout`.
+/// Write dropped bytes to a temporary file so the existing path-based attachment code can take it.
+///
+/// The name comes from the drag source and may have no extension at all (browsers often send none),
+/// so the content is sniffed and an extension added: `attach::snippet_for_file` decides image-versus
+/// file from the extension, and a PNG named `image` would otherwise be attached as an opaque blob.
+#[cfg(any(windows, test))]
+#[cfg(any(windows, test))]
+pub(crate) fn blob_files(blobs: &[crate::dropped::Blob]) -> Vec<std::path::PathBuf> {
+    let dir = std::env::temp_dir().join("notecraft-drop");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return Vec::new();
+    }
+    blobs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, blob)| {
+            let mut name = blob
+                .name
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or("dropped")
+                .trim()
+                .to_string();
+            if name.is_empty() {
+                name = format!("dropped-{i}");
+            }
+            if std::path::Path::new(&name).extension().is_none() {
+                name.push_str(guess_ext(&blob.bytes));
+            }
+            let path = dir.join(format!("{i}-{name}"));
+            std::fs::write(&path, &blob.bytes).ok()?;
+            Some(path)
+        })
+        .collect()
+}
+
+/// The extension for bytes with no name, from their magic number.
+#[cfg(any(windows, test))]
+pub(crate) fn guess_ext(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        ".png"
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        ".jpg"
+    } else if bytes.starts_with(b"GIF8") {
+        ".gif"
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        ".webp"
+    } else if bytes.starts_with(b"BM") {
+        ".bmp"
+    } else {
+        ".bin"
+    }
+}
+
 pub(crate) fn dnd_log(msg: &str) {
     let Some(dir) = directories::BaseDirs::new().map(|d| d.config_dir().join("notecraft")) else {
         return;
@@ -9827,5 +9955,64 @@ mod tests_crop {
         assert_eq!(m.size(), r.size(), "a move never resizes");
         let far = move_crop(r, Vec2::new(5000.0, 5000.0), src());
         assert!((far.right() - 1000.0).abs() < 0.01 && (far.bottom() - 800.0).abs() < 0.01);
+    }
+}
+
+#[cfg(test)]
+mod tests_dropped_blobs {
+    use super::*;
+
+    #[test]
+    fn an_extension_is_read_from_the_bytes_when_the_source_forgot_one() {
+        // Browsers often send a virtual file named "image" with no extension at all; the attachment
+        // code decides image-versus-file from the name, so the magic number has to supply it.
+        assert_eq!(guess_ext(&[0x89, b'P', b'N', b'G', 0x0d]), ".png");
+        assert_eq!(guess_ext(&[0xFF, 0xD8, 0xFF, 0xE0]), ".jpg");
+        assert_eq!(guess_ext(b"GIF89a"), ".gif");
+        assert_eq!(guess_ext(b"RIFF\x24\x00\x00\x00WEBPVP8 "), ".webp");
+        assert_eq!(guess_ext(b"BM\x36\x00"), ".bmp");
+        assert_eq!(guess_ext(b"not an image at all"), ".bin");
+    }
+
+    #[test]
+    fn a_dropped_blob_becomes_a_file_the_attachment_code_can_take() {
+        let blob = crate::dropped::Blob {
+            name: "image".into(),
+            bytes: vec![0x89, b'P', b'N', b'G', 1, 2, 3],
+        };
+        let paths = blob_files(&[blob]);
+        assert_eq!(paths.len(), 1);
+        assert_eq!(
+            paths[0].extension().and_then(|e| e.to_str()),
+            Some("png"),
+            "the sniffed extension has to reach the file name: {:?}",
+            paths[0]
+        );
+        assert_eq!(std::fs::read(&paths[0]).unwrap().len(), 7);
+    }
+
+    #[test]
+    fn a_name_carrying_a_path_cannot_escape_the_drop_directory() {
+        // The name comes from another process; it must not be able to name a path of its choosing.
+        let blob = crate::dropped::Blob {
+            name: "../../etc/passwd".into(),
+            bytes: vec![0u8; 4],
+        };
+        let paths = blob_files(&[blob]);
+        assert_eq!(paths.len(), 1);
+        let file = paths[0].file_name().unwrap().to_string_lossy().to_string();
+        assert!(!file.contains(".."), "{file}");
+        assert!(!file.contains('/'), "{file}");
+        assert!(paths[0].starts_with(std::env::temp_dir().join("notecraft-drop")));
+    }
+
+    #[test]
+    fn a_nameless_blob_still_gets_a_file() {
+        let paths = blob_files(&[crate::dropped::Blob {
+            name: String::new(),
+            bytes: b"GIF89a".to_vec(),
+        }]);
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].extension().and_then(|e| e.to_str()), Some("gif"));
     }
 }

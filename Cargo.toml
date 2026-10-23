@@ -39,6 +39,13 @@ x11rb = "0.13"
 raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
+# The app's own OLE drop target (src/windows_dnd.rs): browsers hand a dragged image over as a
+# virtual file or as PNG bytes, neither of which is CF_HDROP, so the toolkit never sees it.
+windows = { version = "0.59", default-features = false, features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_Graphics_Gdi", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_SystemServices", "Win32_UI_Shell"] }
+# `#[implement]` expands to `windows_core::` paths.
+windows-core = "0.59"
+# Reading the window handle eframe was given, to register the drop target on it.
+raw-window-handle = "0.6"
 # AttachConsole, so the CLI verbs (`notecraft new "..."`) print into the terminal that started
 # them even though the binary is a windowed app (no console window on a double-click).
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }

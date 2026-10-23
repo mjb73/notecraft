@@ -15,6 +15,14 @@ pub fn config_dir() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|d| d.config_dir().join("notecraft"))
 }
 
+/// The log file's path, created on demand: `config_dir()/notecraft.log`. Nothing is written until
+/// something is logged, so a run that never warns leaves no file behind.
+pub fn log_file_path() -> Option<PathBuf> {
+    let dir = config_dir()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("notecraft.log"))
+}
+
 /// Where the notes live on a fresh install: `Documents/NoteCraft` on every platform, so the
 /// pages are somewhere a person will actually find them (they are plain markdown, and half the
 /// point is that the folder can be backed up, synced or grep-ed). `NOTECRAFT_VAULT` overrides it.

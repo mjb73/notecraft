@@ -177,13 +177,16 @@ and that file is not compiled on Windows or macOS.
   into the window does nothing there. Paste (`Ctrl+V`) and **Attach** work; launch with `--x11`
   (XWayland) if you want drag and drop. NoteCraft picks X11 automatically when an X server is
   reachable.
-- **Dragging an image straight out of a browser does not work on Windows or macOS.** A browser
-  offers a dragged image as a *virtual file* (a file that does not exist on disk), and the toolkit
-  only accepts real files (`CF_HDROP`), so no drop event is produced at all. Drag the picture to the
-  desktop first and drop that file in, or right-click it → **Copy image** and press `Ctrl+V` in
-  NoteCraft. Files dragged from Explorer/Finder work normally.
+- **Dragging an image out of a browser works on Windows**, through the app's own OLE drop target
+  (`src/windows_dnd.rs`): a browser offers a dragged picture as a *virtual file* or as raw PNG
+  bytes, neither of which is the `CF_HDROP` the toolkit asks for, so NoteCraft registers a drop
+  target that reads both. **On macOS it does not** — the toolkit only accepts real files there, so
+  drag the picture to the desktop first, or right-click → **Copy image** and press `Ctrl+V`.
 - **Dragging a picture out** of the window is an X11 feature (a hand-written XDND source). On
   Wayland, macOS and Windows, right-click the picture and copy it instead.
+- **If a drop or a hotkey does nothing,** Windows writes what happened to
+  `%APPDATA%\notecraft\dnd.log` (Linux: `~/.config/notecraft/dnd.log`). It names the formats the drag
+  source offered, which is usually enough to tell a rejected drag from one that never arrived.
 - **PDF export** needs one of WeasyPrint, wkhtmltopdf, or a Chromium-family browser (Microsoft Edge
   is on every Windows machine). The HTML export needs nothing and is the same page.
 - **Unsigned builds** — see *Download* above.
