@@ -18,6 +18,17 @@ const CHAKRA_MED: &[u8] = include_bytes!("../assets/ChakraPetch-Medium.ttf");
 const CHAKRA_SEMI: &[u8] = include_bytes!("../assets/ChakraPetch-SemiBold.ttf");
 const CHAKRA_BOLD: &[u8] = include_bytes!("../assets/ChakraPetch-Bold.ttf");
 const JETBRAINS: &[u8] = include_bytes!("../assets/JetBrainsMono.ttf");
+/// Carlito: the free, metric-compatible Calibri. Two binaries only — regular and bold — so the
+/// medium and semi roles point at the nearest cut. egui has no synthetic weight, so the four names
+/// still have to exist; a ribbon label is regular and a heading is bold, exactly as Word draws them.
+const CARLITO_REG: &[u8] = include_bytes!("../assets/Carlito-Regular.ttf");
+const CARLITO_BOLD: &[u8] = include_bytes!("../assets/Carlito-Bold.ttf");
+const CARLITO: [(&str, &[u8]); 4] = [
+    ("Carlito Reg", CARLITO_REG),
+    ("Carlito Med", CARLITO_REG),
+    ("Carlito Semi", CARLITO_BOLD),
+    ("Carlito Bold", CARLITO_BOLD),
+];
 
 pub const F_REG: &str = "Reg";
 pub const F_MED: &str = "Med";
@@ -25,8 +36,100 @@ pub const F_SEMI: &str = "Semi";
 pub const F_BOLD: &str = "Bold";
 pub const F_MONO: &str = "Mono";
 
-pub fn fam(name: &str) -> FontFamily {
+// ---------------------------------------------------------------- bar metrics
+//
+// One set of numbers for the whole chrome, in every theme: a bar whose labels are 12, 13 and 14 pt
+// with three different gaps reads as three different apps stacked on top of each other, which is
+// exactly what the first two-row pass looked like. Sizes and gaps live here so a theme can change
+// colours but never the rhythm of the bar.
+
+/// Height of the title row (wordmark, breadcrumb, search, theme switch).
+pub const BAR_ROW1_H: f32 = 32.0;
+/// Height of the tab strip under it.
+pub const BAR_TABS_H: f32 = 26.0;
+/// Height of the ribbon content row: one row of controls plus their captions, with 2 pt of air
+/// under the captions so they do not sit on the band's own edge.
+pub const BAR_CONTENT_H: f32 = 44.0;
+/// Left and right padding — identical on every strip and in every theme.
+pub const BAR_PAD: f32 = 12.0;
+/// Every label in the bar: tabs, painted buttons, menus, the breadcrumb.
+///
+/// 11.5, not 13: WordCraft's menu line measures ~11.3 pt of ink at a 1200 pt window, and a bar a
+/// size and a half larger than the one it is modelled on was the first thing that read as wrong.
+pub const BAR_FONT: f32 = 11.5;
+/// Secondary text in the bar: the search hint and the group captions (~9.5 in WordCraft).
+pub const BAR_SMALL: f32 = 9.5;
+/// Height of a row-1 control (the search box, the theme switch).
+pub const BAR_CTRL_H: f32 = 24.0;
+/// Height of a row-2 control (a tab, a painted button, a menu).
+pub const BAR_BTN_H: f32 = 26.0;
+/// Gap between two controls inside one group.
+pub const BAR_ITEM_GAP: f32 = 6.0;
+/// Gap either side of a group rule.
+pub const BAR_GROUP_GAP: f32 = 12.0;
+/// Height of the caption line under a group. An 11 pt mono line is ~14 pt tall (ascent + descender),
+/// so a 12 pt box drew the caption into the band's edge and cut it in half.
+pub const BAR_CAPTION_H: f32 = 14.0;
+
+/// A family by its exact name — what `install_fonts` binds, and what a note face asks for by name.
+/// It is deliberately *not* the chrome switch: a family name is a fact, `fam()` is a decision.
+pub fn raw(name: &str) -> FontFamily {
     FontFamily::Name(name.into())
+}
+
+/// The chrome face a theme wears. WordCraft's is Carlito — the free Calibri-metric sans — so the
+/// ribbon, the panels and the status bar read like the word processor it is modelled on; every
+/// other theme keeps the house face, Chakra Petch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ChromeFace {
+    Chakra,
+    Carlito,
+}
+
+impl ChromeFace {
+    /// The four families this face is set in, in `F_REG` `F_MED` `F_SEMI` `F_BOLD` order.
+    fn families(self) -> [(&'static str, &'static [u8]); 4] {
+        match self {
+            ChromeFace::Chakra => HOUSE,
+            ChromeFace::Carlito => CARLITO,
+        }
+    }
+}
+
+/// The chrome face, a process-wide switch like the note face: `apply` writes it from the theme and
+/// every existing `fam(..)` call site keeps working. `0` is the house face.
+static CHROME_FACE: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_chrome_face(face: ChromeFace) {
+    CHROME_FACE.store(
+        if face == ChromeFace::Carlito { 1 } else { 0 },
+        Ordering::Relaxed,
+    );
+}
+
+pub fn chrome_face() -> ChromeFace {
+    if CHROME_FACE.load(Ordering::Relaxed) == 1 {
+        ChromeFace::Carlito
+    } else {
+        ChromeFace::Chakra
+    }
+}
+
+/// The chrome family for a role. Code keeps JetBrains Mono in every theme — `fam(F_MONO)` must not
+/// follow the ribbon's face, or code stops lining up the moment the theme changes.
+pub fn fam(role: &str) -> FontFamily {
+    if role == F_MONO {
+        return raw(F_MONO);
+    }
+    let i = match role {
+        F_MED => 1,
+        F_SEMI => 2,
+        F_BOLD => 3,
+        F_REG => 0,
+        // not a weight role: a name the caller asked for by hand, left alone
+        other => return raw(other),
+    };
+    raw(chrome_face().families()[i].0)
 }
 
 /// The four weight faces of the house font, in `F_REG` `F_MED` `F_SEMI` `F_BOLD` order. The keys are
@@ -83,15 +186,18 @@ pub enum NoteFont {
     Literata,
     /// Caveat — handwriting, for a note that is a scribble rather than a draft.
     Caveat,
+    /// Carlito — Calibri's free metric twin; the WordCraft theme's own default.
+    Carlito,
 }
 
 /// The picker's order: the house face first, then the alternatives.
-pub const NOTE_FONTS: [NoteFont; 5] = [
+pub const NOTE_FONTS: [NoteFont; 6] = [
     NoteFont::House,
     NoteFont::Grotesk,
     NoteFont::Fraunces,
     NoteFont::Literata,
     NoteFont::Caveat,
+    NoteFont::Carlito,
 ];
 
 impl NoteFont {
@@ -103,6 +209,7 @@ impl NoteFont {
             NoteFont::Fraunces => "fraunces",
             NoteFont::Literata => "literata",
             NoteFont::Caveat => "caveat",
+            NoteFont::Carlito => "carlito",
         }
     }
 
@@ -114,6 +221,7 @@ impl NoteFont {
             NoteFont::Fraunces => "Fraunces",
             NoteFont::Literata => "Literata",
             NoteFont::Caveat => "Caveat",
+            NoteFont::Carlito => "Carlito",
         }
     }
 
@@ -135,6 +243,7 @@ impl NoteFont {
             NoteFont::Fraunces => FRAUNCES,
             NoteFont::Literata => LITERATA,
             NoteFont::Caveat => CAVEAT,
+            NoteFont::Carlito => CARLITO,
         }
     }
 
@@ -148,7 +257,7 @@ impl NoteFont {
             F_BOLD => 3,
             _ => 0,
         };
-        fam(faces[i].0)
+        raw(faces[i].0)
     }
 }
 
@@ -204,6 +313,14 @@ fn font_definitions() -> egui::FontDefinitions {
             .insert(name.to_owned(), Arc::new(egui::FontData::from_static(bytes)));
     };
     add("jbmono", JETBRAINS);
+    // both chrome faces, whichever one a theme happens to wear: a theme switch must never land on a
+    // family the atlas has not bound (the note-face loop below covers them too; re-binding the same
+    // key to the same bytes is a no-op and keeps this independent of NOTE_FONTS' contents)
+    for face in [ChromeFace::Chakra, ChromeFace::Carlito] {
+        for (key, bytes) in face.families() {
+            add(key, bytes);
+        }
+    }
 
     // Keep egui's emoji/symbol faces as fallback so glyphs outside a note font (arrows, ticks, box
     // drawing) still rasterize instead of showing tofu; the house regular sits in front of them
@@ -218,7 +335,9 @@ fn font_definitions() -> egui::FontDefinitions {
                 list.push(F_REG.to_owned());
             }
             list.extend(fallback.iter().map(|s| s.to_string()));
-            fonts.families.insert(fam(key), list);
+            // `raw`, not `fam`: the chrome switch may be on Carlito by the time this runs, and a
+            // family's own name is exactly what it is being bound to here.
+            fonts.families.insert(raw(key), list);
         }
     }
 
@@ -284,6 +403,17 @@ pub struct Theme {
     pub marks: [Color32; 5],
     /// The ink of highlighted words: dark on every theme, because a marker is opaque.
     pub mark_ink: Color32,
+    /// The face the chrome is set in for this theme (`fam()` reads it through the process switch).
+    pub chrome: ChromeFace,
+    /// Draw the note on a page: a white sheet with a hairline edge and a shadow, on the canvas
+    /// colour. Word's document view — the one part of the look a palette alone cannot fake.
+    pub sheet: bool,
+    /// Corner radius for painted controls. Word's ribbon is nearly square; the house themes are
+    /// deliberately rounder.
+    pub radius: u8,
+    /// The note face this theme opens a note in. The Display menu still overrides it for the
+    /// session; picking a theme is picking its type.
+    pub default_note: NoteFont,
 }
 
 /// The highlighter names, in palette order (`Attrs::mark` is 1-based; 0 means no mark).
@@ -328,6 +458,10 @@ pub const VOID: Theme = Theme {
     danger: rgb(242, 112, 106),
     marks: MARKS,
     mark_ink: MARK_INK,
+    chrome: ChromeFace::Chakra,
+    sheet: false,
+    radius: 8,
+    default_note: NoteFont::House,
 };
 
 pub const EMBER: Theme = Theme {
@@ -353,6 +487,10 @@ pub const EMBER: Theme = Theme {
     danger: rgb(239, 108, 95),
     marks: MARKS,
     mark_ink: MARK_INK,
+    chrome: ChromeFace::Chakra,
+    sheet: false,
+    radius: 8,
+    default_note: NoteFont::House,
 };
 
 pub const SLATE: Theme = Theme {
@@ -378,6 +516,10 @@ pub const SLATE: Theme = Theme {
     danger: rgb(232, 122, 118),
     marks: MARKS,
     mark_ink: MARK_INK,
+    chrome: ChromeFace::Chakra,
+    sheet: false,
+    radius: 8,
+    default_note: NoteFont::House,
 };
 
 /// Paper is the one light theme, so its colours are chosen against a *light* background — the
@@ -411,14 +553,54 @@ pub const PAPER: Theme = Theme {
     danger: rgb(168, 48, 38),
     marks: MARKS,
     mark_ink: MARK_INK,
+    chrome: ChromeFace::Chakra,
+    sheet: false,
+    radius: 8,
+    default_note: NoteFont::House,
 };
 
-pub fn themes() -> [Theme; 4] {
-    [VOID, EMBER, SLATE, PAPER]
+/// WordCraft: the ribbon look of the word processor this app is modelled on, measured off its own
+/// window rather than guessed — #F0F0F0 chrome bands, #F9F9F9 ribbon, #E6E6E6 canvas, a white page
+/// and its #3B5BDB indigo. The indigo is deepened to #2F4BC4 because a tag or a due chip paints its
+/// colour at 14 % behind its own text, and the raw #3B5BDB only manages 3.8:1 on that wash.
+pub const WORDCRAFT: Theme = Theme {
+    id: "wordcraft",
+    label: "WordCraft",
+    dark: false,
+    bg: rgb(230, 230, 230),
+    panel: rgb(240, 240, 240),
+    panel2: rgb(249, 249, 249),
+    card: rgb(255, 255, 255),
+    card_hover: rgb(237, 237, 237),
+    border: rgb(212, 212, 212),
+    text: rgb(36, 36, 36),
+    dim: rgb(92, 92, 92),
+    faint: rgb(102, 102, 102),
+    ghost: rgb(180, 180, 180),
+    accent: rgb(47, 75, 196),
+    accent2: rgb(11, 90, 158),
+    heading: rgb(0, 0, 0),
+    code_bg: rgb(204, 204, 204),
+    done: rgb(14, 107, 58),
+    warn: rgb(122, 73, 0),
+    danger: rgb(176, 36, 24),
+    marks: MARKS,
+    mark_ink: MARK_INK,
+    chrome: ChromeFace::Carlito,
+    sheet: true,
+    radius: 4,
+    default_note: NoteFont::Carlito,
+};
+
+pub fn themes() -> [Theme; 5] {
+    [VOID, EMBER, SLATE, PAPER, WORDCRAFT]
 }
 
 /// Apply a theme to the whole context. Called on startup and on theme change.
 pub fn apply(ctx: &egui::Context, t: &Theme) {
+    // The chrome face first: every text style below is built through `fam()`, which reads this
+    // switch, so setting it after the styles would leave the bar in the previous theme's type.
+    set_chrome_face(t.chrome);
     let mut style = (*ctx.style()).clone();
     let mut v = if t.dark {
         egui::Visuals::dark()
@@ -429,8 +611,9 @@ pub fn apply(ctx: &egui::Context, t: &Theme) {
     v.panel_fill = t.panel;
     v.window_fill = t.card;
     v.window_stroke = Stroke::new(1.0_f32, t.border);
-    v.window_corner_radius = CornerRadius::same(14);
-    v.menu_corner_radius = CornerRadius::same(10);
+    // Round for the house themes, near-square for WordCraft, whose ribbon buttons have a 2–3 pt cut
+    v.window_corner_radius = CornerRadius::same(t.radius + 6);
+    v.menu_corner_radius = CornerRadius::same(t.radius + 2);
     v.window_shadow = Shadow {
         offset: [0, 12],
         blur: 30,
@@ -460,7 +643,7 @@ pub fn apply(ctx: &egui::Context, t: &Theme) {
         weak_bg_fill: weak,
         bg_stroke: Stroke::new(1.0_f32, t.border),
         fg_stroke: Stroke::new(1.0_f32, fg),
-        corner_radius: CornerRadius::same(8),
+        corner_radius: CornerRadius::same(t.radius),
         expansion: 0.0,
     };
     v.widgets.noninteractive = wv(t.panel, t.panel, t.text);
@@ -478,8 +661,18 @@ pub fn apply(ctx: &egui::Context, t: &Theme) {
     v.widgets.open = wv(t.card_hover, t.card_hover, t.heading);
 
     style.visuals = v;
-    style.spacing.item_spacing = Vec2::new(8.0, 7.0);
-    style.spacing.button_padding = Vec2::new(10.0, 5.0);
+    // A ribbon is denser than the house bar: WordCraft's small radius is also its density switch.
+    let dense = t.radius <= 4;
+    style.spacing.item_spacing = if dense {
+        Vec2::new(6.0, 5.0)
+    } else {
+        Vec2::new(8.0, 7.0)
+    };
+    style.spacing.button_padding = if dense {
+        Vec2::new(8.0, 3.0)
+    } else {
+        Vec2::new(10.0, 5.0)
+    };
     style.spacing.window_margin = Margin::same(12);
     style.spacing.indent = 14.0;
     style.spacing.interact_size = Vec2::new(30.0, 26.0);
@@ -670,7 +863,7 @@ pub fn icon_button(ui: &mut Ui, glyph: &str, tip: &str, t: &Theme) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::click());
     let p = ui.painter();
     if resp.hovered() {
-        p.rect_filled(rect, CornerRadius::same(8), t.card_hover);
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
     }
     let color = if resp.hovered() { t.heading } else { t.dim };
     p.text(
@@ -696,7 +889,8 @@ pub fn icon_button_painted(
 ) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::click());
     if resp.hovered() {
-        ui.painter().rect_filled(rect, CornerRadius::same(8), t.card_hover);
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
     }
     let color = if resp.hovered() { t.heading } else { t.dim };
     paint(ui.painter(), rect.shrink(8.0), color);
@@ -725,14 +919,14 @@ pub fn nav_row(
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 27.0), Sense::click());
     let p = ui.painter();
     if selected {
-        p.rect_filled(rect, CornerRadius::same(7), t.accent.gamma_multiply(0.16));
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.16));
         p.rect_filled(
             egui::Rect::from_min_size(rect.min + Vec2::new(0.0, 5.0), Vec2::new(2.5, rect.height() - 10.0)),
             CornerRadius::same(2),
             t.accent,
         );
     } else if resp.hovered() {
-        p.rect_filled(rect, CornerRadius::same(7), t.card_hover);
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
     }
     let text_color = if selected {
         t.heading
@@ -799,21 +993,21 @@ pub fn section_label(ui: &mut Ui, text: &str, t: &Theme) {
 
 /// Toolbar button: text, optional accent tint, flat until hovered.
 pub fn toolbar_button(ui: &mut Ui, label: &str, active: bool, t: &Theme) -> Response {
-    let font = FontId::new(13.0, fam(F_MED));
+    let font = FontId::new(BAR_FONT, fam(F_MED));
     let galley = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), t.text));
-    let size = galley.size() + Vec2::new(18.0, 9.0);
+    let size = Vec2::new(galley.size().x + 20.0, BAR_BTN_H);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let p = ui.painter();
     if active {
-        p.rect_filled(rect, CornerRadius::same(8), t.accent.gamma_multiply(0.20));
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.20));
         p.rect_stroke(
             rect,
-            CornerRadius::same(8),
+            CornerRadius::same(t.radius),
             Stroke::new(1.0_f32, t.accent.gamma_multiply(0.6)),
             StrokeKind::Inside,
         );
     } else if resp.hovered() {
-        p.rect_filled(rect, CornerRadius::same(8), t.card_hover);
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
     }
     let color = if active {
         t.accent
@@ -823,7 +1017,282 @@ pub fn toolbar_button(ui: &mut Ui, label: &str, active: bool, t: &Theme) -> Resp
         t.dim
     };
     let g = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), color));
-    p.galley(rect.min + Vec2::new(9.0, 4.5), g, color);
+    p.galley(
+        egui::Pos2::new(rect.min.x + 10.0, rect.center().y - g.size().y * 0.5),
+        g,
+        color,
+    );
+    resp
+}
+
+/// The little glyph at the left of a ribbon label.
+///
+/// WordCraft draws every ribbon command as line art — a clipboard before "Paste", scissors before
+/// "Cut" — and the picture is what makes a row of words into a toolbar. These are drawn, not images:
+/// one stroke width, the theme's own ink, and a fixed box so every label in the row starts at the
+/// same offset. Letters (H, B, I, S, </>) are set in the chrome face, because a hand-drawn "B" looks
+/// like a bug and Word uses the letter too.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Icon {
+    Paste,
+    Cut,
+    Copy,
+    Attach,
+    Snip,
+    Heading,
+    Task,
+    Bullet,
+    Plain,
+    Bold,
+    Italic,
+    Code,
+    Strike,
+}
+
+impl Icon {
+    /// The ones that are a letter rather than a drawing.
+    fn glyph(self) -> Option<&'static str> {
+        match self {
+            Icon::Heading => Some("H"),
+            Icon::Bold => Some("B"),
+            Icon::Italic => Some("I"),
+            Icon::Code => Some("</>"),
+            Icon::Strike => Some("S"),
+            _ => None,
+        }
+    }
+}
+
+/// The square a ribbon icon is drawn in, and the air around it inside the button.
+pub const BAR_ICON: f32 = 13.0;
+const BAR_ICON_GAP: f32 = 4.0;
+const BAR_BTN_PAD: f32 = 6.0;
+
+/// Paint one icon into `rect` (a `BAR_ICON` square, already centred on the button).
+pub fn paint_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, colour: Color32, hot: Color32) {
+    let s = Stroke::new(1.15_f32, colour);
+    let a = rect.min;
+    let x = |fx: f32| a.x + fx * rect.width() / BAR_ICON;
+    let y = |fy: f32| a.y + fy * rect.height() / BAR_ICON;
+    let pt = |fx: f32, fy: f32| egui::pos2(x(fx), y(fy));
+    match icon {
+        // a sheet with a clip across its top
+        Icon::Paste => {
+            p.rect_stroke(
+                egui::Rect::from_min_max(pt(2.0, 3.0), pt(11.0, 12.2)),
+                CornerRadius::same(1),
+                s,
+                StrokeKind::Inside,
+            );
+            // filled, not stroked: a stroked tab merged with the sheet's own top edge and the
+            // whole icon read as an empty box. Filled in the accent, the way WordCraft paints the
+            // page on its clipboard — one coloured detail is what makes a row of icons look drawn
+            // rather than printed.
+            p.rect_filled(
+                egui::Rect::from_min_max(pt(4.0, 1.2), pt(9.0, 4.2)),
+                CornerRadius::same(1),
+                hot,
+            );
+        }
+        // paperclip: one wire bent back on itself — two nested rects read as a microphone, a
+        // single folded path reads as a clip
+        Icon::Attach => {
+            p.add(egui::Shape::line(
+                vec![
+                    pt(9.2, 3.0),
+                    pt(9.2, 9.8),
+                    pt(5.4, 9.8),
+                    pt(5.4, 2.4),
+                    pt(7.9, 2.4),
+                    pt(7.9, 8.2),
+                ],
+                Stroke::new(1.15_f32, colour),
+            ));
+            // the wire's own tip, in colour: the one detail that says "attachment"
+            p.circle_filled(pt(7.9, 8.2), 1.0, hot);
+        }
+        // scissors: two blades crossing over two rings
+        Icon::Cut => {
+            p.line_segment([pt(3.0, 1.2), pt(9.4, 8.8)], s);
+            p.line_segment([pt(10.0, 1.2), pt(3.6, 8.8)], s);
+            p.circle_stroke(pt(3.2, 10.6), 1.7, Stroke::new(1.15_f32, hot));
+            p.circle_stroke(pt(9.8, 10.6), 1.7, Stroke::new(1.15_f32, hot));
+        }
+        // two sheets, the back one offset and filled: copy
+        Icon::Copy => {
+            p.rect_filled(
+                egui::Rect::from_min_max(pt(1.2, 1.2), pt(8.4, 9.4)),
+                CornerRadius::same(1),
+                hot.gamma_multiply(0.62),
+            );
+            p.rect_stroke(
+                egui::Rect::from_min_max(pt(1.2, 1.2), pt(8.4, 9.4)),
+                CornerRadius::same(1),
+                s,
+                StrokeKind::Inside,
+            );
+            p.rect_stroke(
+                egui::Rect::from_min_max(pt(4.6, 3.8), pt(11.8, 12.0)),
+                CornerRadius::same(1),
+                s,
+                StrokeKind::Inside,
+            );
+        }
+        // a crop frame with its corner marks: what a snip takes
+        Icon::Snip => {
+            let (x0, y0, x1, y1) = (2.0_f32, 2.0_f32, 11.0_f32, 11.0_f32);
+            p.line_segment([pt(x0, y0), pt(x0 + 3.0, y0)], s);
+            p.line_segment([pt(x0, y0), pt(x0, y0 + 3.0)], s);
+            p.line_segment([pt(x1, y0), pt(x1 - 3.0, y0)], s);
+            p.line_segment([pt(x1, y0), pt(x1, y0 + 3.0)], s);
+            p.line_segment([pt(x0, y1), pt(x0 + 3.0, y1)], s);
+            p.line_segment([pt(x0, y1), pt(x0, y1 - 3.0)], s);
+            p.line_segment([pt(x1, y1), pt(x1 - 3.0, y1)], s);
+            p.line_segment([pt(x1, y1), pt(x1, y1 - 3.0)], s);
+            // the frame's own centre, so the snip reads as a region and not as a broken box
+            p.rect_stroke(
+                egui::Rect::from_min_max(pt(4.6, 4.6), pt(8.4, 8.4)),
+                CornerRadius::same(1),
+                Stroke::new(1.0_f32, hot),
+                StrokeKind::Inside,
+            );
+        }
+        // a ticked box
+        Icon::Task => {
+            p.rect_stroke(
+                egui::Rect::from_min_max(pt(1.6, 1.6), pt(11.4, 11.4)),
+                CornerRadius::same(2),
+                s,
+                StrokeKind::Inside,
+            );
+            p.add(egui::Shape::line(
+                vec![pt(3.8, 6.4), pt(5.8, 8.6), pt(9.4, 3.9)],
+                Stroke::new(1.6_f32, hot),
+            ));
+        }
+        // three dots and three lines
+        Icon::Bullet => {
+            for i in 0..3 {
+                let fy = 2.6 + i as f32 * 3.9;
+                p.circle_filled(pt(1.9, fy), 1.1, hot);
+                p.line_segment([pt(4.6, fy), pt(11.8, fy)], s);
+            }
+        }
+        // the same three lines, no dots: the line as it is written
+        Icon::Plain => {
+            for i in 0..3 {
+                let fy = 2.6 + i as f32 * 3.9;
+                p.line_segment([pt(1.2, fy), pt(11.8, fy)], s);
+            }
+        }
+        // the letters (Heading, Bold, Italic, Code, Strike) never reach here
+        _ => {}
+    }
+}
+
+/// [toolbar_button] with an icon before the label: the ribbon's command button.
+///
+/// The dialog buttons keep `toolbar_button` — an icon before "Cancel" would be decoration. Side
+/// padding drops from 10 to 7 so the icon costs less room than it looks: 14 buttons across a 1200 pt
+/// bar still leave the mark group visible.
+pub fn toolbar_icon_button(ui: &mut Ui, icon: Icon, label: &str, active: bool, t: &Theme) -> Response {
+    // The label is one step up from a dialog button's: at BAR_FONT these read as captions under
+    // their icons rather than as the command's name, which is what WordCraft's row looks like.
+    let font = FontId::new(BAR_FONT + 1.0, fam(F_MED));
+    let galley = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), t.text));
+    let glyph_font = FontId::new(
+        if icon == Icon::Code {
+            BAR_FONT - 1.0
+        } else {
+            BAR_FONT + 1.5
+        },
+        fam(F_SEMI),
+    );
+    let glyph = icon.glyph().map(|g| {
+        ui.fonts_mut(|f| f.layout_no_wrap(g.to_owned(), glyph_font.clone(), t.text))
+    });
+    let icon_w = glyph
+        .as_ref()
+        .map(|g| g.size().x.max(BAR_ICON))
+        .unwrap_or(BAR_ICON);
+    let size = Vec2::new(
+        BAR_BTN_PAD * 2.0 + icon_w + BAR_ICON_GAP + galley.size().x,
+        BAR_BTN_H,
+    );
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    {
+        let p = ui.painter();
+        if active {
+            p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.20));
+            p.rect_stroke(
+                rect,
+                CornerRadius::same(t.radius),
+                Stroke::new(1.0_f32, t.accent.gamma_multiply(0.6)),
+                StrokeKind::Inside,
+            );
+        } else if resp.hovered() {
+            p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
+        }
+    }
+    let color = if active {
+        t.accent
+    } else if resp.hovered() {
+        t.heading
+    } else {
+        t.dim
+    };
+    // WordCraft's trick, kept to one detail per icon: the outline is ink, one filled part is
+    // colour. Which colour is a property of the command — a tick is green whether or not the
+    // theme's accent is, and a heading takes the accent because that *is* the structure colour.
+    let hot = match icon {
+        Icon::Task => t.done,
+        Icon::Strike => t.warn,
+        _ => t.accent,
+    };
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.min.x + BAR_BTN_PAD + icon_w * 0.5, rect.center().y),
+        Vec2::splat(BAR_ICON),
+    );
+    match &glyph {
+        Some(g) => {
+            let glyph_ink = match icon {
+                Icon::Heading | Icon::Code => hot,
+                _ => color,
+            };
+            let g = ui.fonts_mut(|f| {
+                f.layout_no_wrap(g.text().to_owned(), glyph_font.clone(), glyph_ink)
+            });
+            let at = egui::pos2(
+                icon_rect.center().x - g.size().x * 0.5,
+                icon_rect.center().y - g.size().y * 0.5,
+            );
+            let width = g.size().x;
+            let p = ui.painter();
+            p.galley(at, g, glyph_ink);
+            // a strikethrough is an S with a line through it, exactly as Word draws it
+            if icon == Icon::Strike {
+                // sized to the letter, not to the icon box: a line wider than the S read as a dash
+                // that happened to sit behind a letter
+                p.line_segment(
+                    [
+                        egui::pos2(at.x - 0.5, icon_rect.center().y),
+                        egui::pos2(at.x + width + 0.5, icon_rect.center().y),
+                    ],
+                    Stroke::new(1.4_f32, hot),
+                );
+            }
+        }
+        None => paint_icon(ui.painter(), icon_rect, icon, color, hot),
+    }
+    let g = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), color));
+    ui.painter().galley(
+        egui::Pos2::new(
+            rect.min.x + BAR_BTN_PAD + icon_w + BAR_ICON_GAP,
+            rect.center().y - g.size().y * 0.5,
+        ),
+        g,
+        color,
+    );
     resp
 }
 
@@ -834,19 +1303,24 @@ pub fn toolbar_button(ui: &mut Ui, label: &str, active: bool, t: &Theme) -> Resp
 pub fn segment_button(ui: &mut Ui, label: &str, active: bool, t: &Theme) -> Response {
     let font = FontId::new(13.0, fam(F_MED));
     let galley = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), t.text));
-    let size = galley.size() + Vec2::new(18.0, 9.0);
+    let pad = if t.radius <= 4 {
+        Vec2::new(14.0, 8.0)
+    } else {
+        Vec2::new(18.0, 9.0)
+    };
+    let size = galley.size() + pad;
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let p = ui.painter();
     if active {
-        p.rect_filled(rect, CornerRadius::same(8), t.accent.gamma_multiply(0.20));
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.20));
         p.rect_stroke(
             rect,
-            CornerRadius::same(8),
+            CornerRadius::same(t.radius),
             Stroke::new(1.0_f32, t.accent.gamma_multiply(0.6)),
             StrokeKind::Inside,
         );
     } else if resp.hovered() {
-        p.rect_filled(rect, CornerRadius::same(8), t.card_hover);
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
     }
     let color = if active {
         t.accent
@@ -856,8 +1330,158 @@ pub fn segment_button(ui: &mut Ui, label: &str, active: bool, t: &Theme) -> Resp
         t.text
     };
     let g = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), color));
-    p.galley(rect.min + Vec2::new(9.0, 4.5), g, color);
+    p.galley(rect.min + pad * 0.5, g, color);
     resp
+}
+
+/// A ribbon tab: the label, and — when it is the one you are on — a painted accent underline along
+/// the bottom of the tab, which is how Word says "you are here". No fill on the active tab: the
+/// underline is the mark, and a tinted box would read as a button sitting in a row of tabs.
+pub fn ribbon_tab(ui: &mut Ui, label: &str, active: bool, t: &Theme, height: f32) -> Response {
+    // A menu label is a name, not a caption: one step up from the ribbon's own labels and set in
+    // the bold face, which is what WordCraft's menu line is. `BAR_FONT + 1.0` here matches the
+    // ribbon buttons, so the two rows read as one bar.
+    let font = FontId::new(BAR_FONT + 1.0, fam(F_BOLD));
+    let galley = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), t.text));
+    // the same 10 pt side padding a painted button uses, so the tab strip's first label lines up
+    // with the ribbon's first label instead of starting 4 pt further right
+    let size = Vec2::new(galley.size().x + 20.0, height);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let p = ui.painter();
+    if resp.hovered() && !active {
+        p.rect_filled(
+            rect,
+            CornerRadius {
+                nw: t.radius,
+                ne: t.radius,
+                sw: 0,
+                se: 0,
+            },
+            t.card_hover,
+        );
+    }
+    // WordCraft marks the current tab with the accent colour *and* the underline; only the underline
+    // made it read as a hover state rather than a tab.
+    let color = if active {
+        t.accent
+    } else if resp.hovered() {
+        t.text
+    } else {
+        t.dim
+    };
+    let g = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font, color));
+    p.galley(
+        egui::Pos2::new(
+            rect.center().x - g.size().x * 0.5,
+            rect.center().y - g.size().y * 0.5,
+        ),
+        g,
+        color,
+    );
+    if active {
+        // the mark runs along the band's bottom edge, which is where Word puts it: the tab is as
+        // tall as the ribbon, so the underline lands under the label and not through the middle
+        p.rect_filled(
+            egui::Rect::from_min_size(
+                egui::Pos2::new(rect.min.x, rect.max.y - 2.25),
+                Vec2::new(rect.width(), 2.25),
+            ),
+            CornerRadius::same(0),
+            t.accent,
+        );
+    }
+    resp
+}
+
+/// One ribbon group: the controls, then the caption Word puts under them (`Clipboard`, `Font`, …).
+///
+/// The caption is measured against the controls actually laid out, not against the width the group
+/// was given: a group holding one short button must not centre its caption in a field of empty
+/// space, which is what `vertical_centered` over the full row would do.
+pub fn ribbon_group(ui: &mut Ui, caption: &str, t: &Theme, add: impl FnOnce(&mut Ui)) {
+    ui.vertical(|ui| {
+        // every group is the same two rows: the controls on the bar's button height, then the
+        // caption — so captions across the band sit on one line whatever the group holds
+        ui.spacing_mut().item_spacing.y = 0.0;
+        ui.add_space((BAR_CONTENT_H - BAR_BTN_H - BAR_CAPTION_H) * 0.5);
+        add(ui);
+        let width = ui.min_rect().width();
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(width, BAR_CAPTION_H), Sense::hover());
+        let g = ui.fonts_mut(|f| {
+            f.layout_no_wrap(caption.to_owned(), FontId::new(BAR_SMALL, fam(F_MONO)), t.faint)
+        });
+        ui.painter().galley(
+            egui::Pos2::new(
+                rect.center().x - g.size().x * 0.5,
+                rect.center().y - g.size().y * 0.5,
+            ),
+            g,
+            t.faint,
+        );
+    });
+}
+
+/// A menu on the ribbon: the same label metrics as a painted button, so "Display" and "Export" sit
+/// in the same voice as "Paste" instead of being the only 14 pt boxes in the band.
+pub fn ribbon_menu(ui: &mut Ui, label: &str, t: &Theme, close_on_click_outside: bool, add: impl FnOnce(&mut Ui)) {
+    let text = egui::RichText::new(label)
+        .family(fam(F_BOLD))
+        .size(BAR_FONT + 1.0)
+        .color(t.dim);
+    let button = egui::Button::new(text).min_size(Vec2::new(0.0, BAR_BTN_H));
+    let mut menu = egui::containers::menu::MenuButton::from_button(button);
+    if close_on_click_outside {
+        menu = menu.config(
+            egui::containers::menu::MenuConfig::new()
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+        );
+    }
+    let _ = menu.ui(ui, add);
+}
+
+/// A row-1 control button: 24 pt square, so the theme switch and the search box share a height.
+pub fn icon_button_bar(ui: &mut Ui, glyph: &str, tip: &str, t: &Theme) -> Response {
+    debug_assert!(
+        ICON_GLYPHS.contains(glyph),
+        "glyph {glyph:?} has no face in the bundled fonts — it will render as a tofu box"
+    );
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BAR_CTRL_H), Sense::click());
+    let p = ui.painter();
+    if resp.hovered() {
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
+    }
+    let color = if resp.hovered() { t.heading } else { t.dim };
+    p.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        FontId::new(BAR_FONT, fam(F_MED)),
+        color,
+    );
+    resp.on_hover_text(tip)
+}
+
+/// The page: a white sheet with a hairline edge and a soft shadow, drawn on the canvas colour.
+///
+/// This is Word's document view and the one piece of its look a palette cannot fake — a note that
+/// bleeds to the edges of the window reads as a text field, not as a document. Only a theme with
+/// `sheet` draws it; the other four keep the full-bleed canvas their design was measured against.
+pub fn paint_page_sheet(ui: &Ui, rect: egui::Rect, t: &Theme) {
+    let shadow = Shadow {
+        offset: [0, 2],
+        blur: 12,
+        spread: 0,
+        color: Color32::from_black_alpha(38),
+    };
+    let p = ui.painter();
+    p.add(shadow.as_shape(rect, CornerRadius::same(1)));
+    p.rect_filled(rect, CornerRadius::same(1), t.card);
+    p.rect_stroke(
+        rect,
+        CornerRadius::same(1),
+        Stroke::new(1.0_f32, t.border),
+        StrokeKind::Inside,
+    );
 }
 
 // ---------------------------------------------------------------- contrast guards
@@ -899,31 +1523,64 @@ mod tests_light {
     /// every surface it can sit on — this is the guard that keeps `faint` (10.5 pt labels, page
     /// meta, the legend, the status bar) from drifting back to a 1.9:1 whisper.
     #[test]
-    fn every_paper_text_token_clears_aa() {
-        let t = PAPER;
-        let tokens = [
-            ("text", t.text),
-            ("dim", t.dim),
-            ("faint", t.faint),
-            ("heading", t.heading),
-            ("accent", t.accent),
-            ("accent2", t.accent2),
-            ("done", t.done),
-            ("warn", t.warn),
-            ("danger", t.danger),
-        ];
-        for (name, c) in tokens {
-            for (surface, bg) in [("bg", t.bg), ("panel", t.panel), ("card", t.card)] {
-                let r = contrast(c, bg);
-                assert!(r >= 4.5, "{name} on {surface} is {r:.2}:1, under AA");
+    fn every_light_text_token_clears_aa() {
+        // Every theme drawn on a light background (Paper and WordCraft): a mid-tone accent or a
+        // "quiet" hint colour that works on near-black is invisible here, and WordCraft's indigo was
+        // measured off the real ribbon at 3.8:1 on its own chip wash before it was deepened.
+        for t in themes().into_iter().filter(|t| !t.dark) {
+            let tokens = [
+                ("text", t.text),
+                ("dim", t.dim),
+                ("faint", t.faint),
+                ("heading", t.heading),
+                ("accent", t.accent),
+                ("accent2", t.accent2),
+                ("done", t.done),
+                ("warn", t.warn),
+                ("danger", t.danger),
+            ];
+            for (name, c) in tokens {
+                for (surface, bg) in [("bg", t.bg), ("panel", t.panel), ("card", t.card)] {
+                    let r = contrast(c, bg);
+                    assert!(r >= 4.5, "{}: {name} on {surface} is {r:.2}:1, under AA", t.label);
+                }
+            }
+            // a tag/due run paints the colour over a 13–14 % wash of itself, and a chip does the same
+            for (name, c) in [("accent", t.accent), ("warn", t.warn)] {
+                let wash = over(c, 0.14, t.bg);
+                let r = contrast(c, wash);
+                assert!(
+                    r >= 4.5,
+                    "{}: {name} on its own chip wash is {r:.2}:1, under AA",
+                    t.label
+                );
             }
         }
-        // a tag/due run paints the colour over a 13–14 % wash of itself, and a chip does the same
-        for (name, c) in [("accent", t.accent), ("warn", t.warn)] {
-            let wash = over(c, 0.14, t.bg);
-            let r = contrast(c, wash);
-            assert!(r >= 4.5, "{name} on its own chip wash is {r:.2}:1, under AA");
+    }
+
+    /// WordCraft is the one theme drawn as a document: Carlito chrome, the page sheet, and a note
+    /// face that belongs to it. A copy of its palette with the house type on top would be the
+    /// halfway house this test exists to prevent.
+    #[test]
+    fn wordcraft_is_a_document_theme() {
+        let sheeted: Vec<&str> = themes()
+            .iter()
+            .filter(|t| t.sheet)
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(sheeted, vec!["wordcraft"], "only WordCraft draws a page sheet");
+        assert_eq!(WORDCRAFT.chrome, ChromeFace::Carlito);
+        assert_eq!(WORDCRAFT.default_note, NoteFont::Carlito);
+        // every theme's own default note face has to be one the picker offers, or the theme would
+        // open a note in a face the Display menu cannot return to
+        for t in themes() {
+            assert!(
+                NOTE_FONTS.contains(&t.default_note),
+                "{}: default note face is not in NOTE_FONTS",
+                t.label
+            );
         }
+        assert!(themes().iter().any(|t| t.id == "wordcraft"));
     }
 
     /// The dark themes are allowed quiet hints, but body text and headings must stay loud.
@@ -1017,10 +1674,10 @@ mod tests_fonts {
                     face.id()
                 );
             }
-            assert_eq!(face.fam(F_REG), fam(keys[0]));
-            assert_eq!(face.fam(F_MED), fam(keys[1]));
-            assert_eq!(face.fam(F_SEMI), fam(keys[2]));
-            assert_eq!(face.fam(F_BOLD), fam(keys[3]));
+            assert_eq!(face.fam(F_REG), raw(keys[0]));
+            assert_eq!(face.fam(F_MED), raw(keys[1]));
+            assert_eq!(face.fam(F_SEMI), raw(keys[2]));
+            assert_eq!(face.fam(F_BOLD), raw(keys[3]));
             assert_ne!(face.fam(F_REG), face.fam(F_BOLD), "{}", face.id());
         }
     }
@@ -1029,6 +1686,9 @@ mod tests_fonts {
     /// exactly what the build before it drew: the house face *is* the chrome's own families.
     #[test]
     fn the_house_face_is_the_chrome() {
+        // the chrome switch is process-wide, so pin it: a test that runs after another one has
+        // applied the WordCraft theme would otherwise see Carlito here
+        set_chrome_face(ChromeFace::Chakra);
         for role in [F_REG, F_MED, F_SEMI, F_BOLD] {
             assert_eq!(NoteFont::House.fam(role), fam(role));
         }
@@ -1064,7 +1724,7 @@ mod tests_fonts {
         for key in keys {
             let list = fonts
                 .families
-                .get(&fam(key))
+                .get(&raw(key))
                 .unwrap_or_else(|| panic!("{key} is not bound to any font"));
             assert!(!list.is_empty(), "{key} has an empty fallback chain");
             assert!(

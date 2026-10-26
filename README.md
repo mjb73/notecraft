@@ -71,13 +71,16 @@ NOTECRAFT_VAULT=~/Sync/Notes notecraft
 - **Tasks view** (`Ctrl+T`): every open checkbox in the vault, filtered by due/overdue/today/tag,
   tickable in place. Due dates (`@due(2026-10-24)`) show as chips.
 - **Tags view**: a tag cloud over the whole vault, with counts.
-- **Search** (`Ctrl+K`): one row per page, with the matching words highlighted; `Ctrl+F` finds
-  inside the open page.
+- **One search** (`Ctrl+K` or `Ctrl+F`): pages, tags and commands in a single row, matching words
+  highlighted. `F3` / `Shift+F3` step through the remaining matches in the open page, with a count
+  in the status bar.
 - **Pictures**: paste (`Ctrl+V`), attach files, drop them in, grab a screen snip (`Ctrl+Shift+S`)
   and crop it in the app, annotate it (`Ctrl+Shift+A`), resize it by dragging its corner, crop
   non-destructively (`Ctrl+Shift+C`), centre it, round its corners.
 - **Spellcheck** with British and American dictionaries, per page.
-- **Four themes** (`Ctrl+Shift+T`): Void, Ember, Slate and a light Paper.
+- **Five themes** (`Ctrl+Shift+T`): Void, Ember, Slate, Paper, and **WordCraft** — Word's layout, done
+  natively: three strips (title, menu line, command row), a contextual ribbon that changes with the
+  tab, and the note drawn as a white page with Carlito type.
 - **Export** to a self-contained HTML file, a PDF, plain text, or markdown to the clipboard.
 - **A small CLI** for scripts and hotkeys (see below).
 
@@ -91,7 +94,8 @@ NOTECRAFT_VAULT=~/Sync/Notes notecraft
 | `Ctrl+N` | new page in this section |
 | `Ctrl+T` / `Ctrl+Shift+T` | tasks view / cycle theme |
 | `Ctrl+E` | read mode ⇄ edit |
-| `Ctrl+F` | find in the open page |
+| `Ctrl+F` | search (the same box as `Ctrl+K`) |
+| `F3` / `Shift+F3` | next / previous match in the open page |
 | `Ctrl+S` | save now (it also autosaves) |
 | `Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`) | undo / redo |
 | `Ctrl+1` / `Ctrl+2` | fold the notebook rail / the page list |
@@ -156,7 +160,7 @@ packaging/macos/make-app.sh target/release/notecraft 1.0.0 dist
 | `src/vault.rs` | the vault on disk: three-level scan, front matter, tags, todos, atomic writes, `.trash` |
 | `src/doc.rs` | a page as blocks and styled text runs; markdown ⇄ document |
 | `src/app.rs` | the window: rail, page list, editor, tasks, tags, palette, overlays |
-| `src/theme.rs` | the four themes, the font families, all drawing helpers |
+| `src/theme.rs` | the five themes, the font families, all drawing helpers |
 | `src/platform.rs` | **everything that differs between the platforms**: file choosers, screen capture, opening a folder, the backend readout, the single-window lock |
 | `src/attach.rs`, `src/imgcache.rs`, `src/highlight.rs`, `src/spell.rs`, `src/export.rs` | attachments, image decoding cache, text layout, spelling, exports |
 | `src/keylayout.rs`, `src/dragout.rs` | Linux extras: the KDE keyboard-layout chip, and dragging a picture out (X11 XDND) |

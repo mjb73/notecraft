@@ -66,7 +66,13 @@ const GUTTER: f32 = 26.0;
 /// and display buttons and their gaps. The breadcrumb is given `available - this`, so it can never
 /// grow a slot the buttons then have to overflow. It is a constant because the buttons' own widths
 /// are; if a label is added to the bar, re-measure it.
-const TOOLBAR_TAIL_W: f32 = 660.0;
+/// What the right-hand end of the title row costs: the search box and the theme switch. The
+/// breadcrumb gets what is left, and nothing at all when that is under 40 pt.
+const SEARCH_BOX_W: f32 = 232.0;
+
+/// The white margins either side of the text when a theme draws a page sheet: Word's document view,
+/// measured in its own proportions rather than as a border.
+const PAGE_PAD: f32 = 46.0;
 /// Height of a picture's caption row. It is the height of `theme::icon_button` (30 pt), because the
 /// file name, the picture's resolution and those buttons share one centre line — a shorter row would
 /// leave the text floating above the buttons it sits next to.
@@ -201,30 +207,6 @@ fn find_label(current: usize, total: usize, other_page: Option<&str>) -> String 
     }
 }
 
-/// Whether a page belongs in `scope`, anchored on the notebook and section that are open.
-fn page_in_scope(
-    notebook: &str,
-    section: &str,
-    scope: FindScope,
-    nb: Option<&str>,
-    sec: Option<&str>,
-) -> bool {
-    match scope {
-        FindScope::Section => Some(notebook) == nb && Some(section) == sec,
-        FindScope::Notebook => Some(notebook) == nb,
-        FindScope::Vault => true,
-    }
-}
-
-/// A page title cut to `max` characters with an ellipsis, for a label that has no room.
-fn short_title(title: &str, max: usize) -> String {
-    if title.chars().count() <= max {
-        return title.to_string();
-    }
-    let mut out: String = title.chars().take(max.saturating_sub(1)).collect();
-    out.push('…');
-    out
-}
 
 /// Where `needle` sits in a list of block texts: `(block, char range within the block)`.
 ///
@@ -254,70 +236,6 @@ fn find_in_texts(texts: &[String], needle: &str) -> Vec<(usize, (usize, usize))>
         }
     }
     out
-}
-
-/// How far a search reaches: the open section, its whole notebook, or every page in the vault.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum FindScope {
-    Section,
-    Notebook,
-    Vault,
-}
-
-impl FindScope {
-    fn label(self) -> &'static str {
-        match self {
-            FindScope::Section => "Section",
-            FindScope::Notebook => "Notebook",
-            FindScope::Vault => "All",
-        }
-    }
-
-    fn hint(self) -> &'static str {
-        match self {
-            FindScope::Section => "find in this section",
-            FindScope::Notebook => "find in this notebook",
-            FindScope::Vault => "find in the whole vault",
-        }
-    }
-}
-
-/// One place the query matched. Matches are collected across the whole scope, so the bar can walk
-/// from page to page the way `Ctrl+F` does in an editor with a project-wide search.
-#[derive(Clone, Debug)]
-struct FindHit {
-    page: PathBuf,
-    page_title: String,
-    block: usize,
-    range: (usize, usize),
-}
-
-/// The texts of the pages in the current scope, read once per (scope, vault state).
-///
-/// Reading every `.note` in the vault on each keystroke would stall the bar on a big vault; the
-/// block texts are kept instead of the documents (a fraction of the memory) because landing on a
-/// hit reopens the page anyway.
-struct FindCache {
-    scope: FindScope,
-    /// `notebook/section` the scope was computed for, so moving the scope's anchor rebuilds it.
-    anchor: String,
-    generation: u64,
-    pages: Vec<(PathBuf, String, Vec<String>)>,
-}
-
-/// Find: a small bar over the note, with a scope toggle, the match count and next/previous.
-#[derive(Clone)]
-struct FindBar {
-    query: String,
-    scope: FindScope,
-    /// Claim the field on the next frame.
-    focus: bool,
-    /// Which match is showing: an index into the hits for the scope *as a whole*, in vault order,
-    /// so walking them is stable even as the open page changes under it.
-    current: usize,
-    /// Whether Enter has already jumped somewhere for this query. Without it the first Enter after
-    /// typing skipped match 1 and landed on match 2.
-    landed: bool,
 }
 
 pub struct NoteCraft {
@@ -440,10 +358,15 @@ pub struct NoteCraft {
     due_month: chrono::NaiveDate,
     /// The due-date picker, when one is open.
     due_pick: Option<DuePick>,
-    /// The find-in-page bar, when one is open (Ctrl+F).
-    find: Option<FindBar>,
-    /// Page texts for the open search scope (see `FindCache`).
-    find_cache: Option<FindCache>,
+    /// The term the last search landed on, and which occurrence of it the caret is at: F3 / Shift+F3
+    /// walk the rest in the open note. One search (the palette) needs no other state than this.
+    last_needle: Option<String>,
+    find_pos: usize,
+    /// An edit the bar asked for. The bar is drawn before the note and cannot touch the document, so
+    /// it leaves the command here and `editor` picks it up beside the context menu's own.
+    pending_edit: Option<Edit>,
+    /// A clipboard action the bar asked for — same shape and same apply path as the menu's own.
+    pending_clip: Option<ClipAction>,
     /// The window title last sent to the compositor, so the breadcrumb is not re-sent every frame.
     title_sent: String,
     /// The "restore from .trash" dialog is showing.
@@ -1347,21 +1270,6 @@ mod tests_panels {
         assert_eq!(find_label(0, 0, None), "no matches");
     }
 
-    #[test]
-    fn a_scope_reaches_exactly_its_own_pages() {
-        // the three-way toggle in the find bar
-        assert!(page_in_scope("NB", "Sec", FindScope::Section, Some("NB"), Some("Sec")));
-        assert!(!page_in_scope("NB", "Other", FindScope::Section, Some("NB"), Some("Sec")));
-        assert!(!page_in_scope("Elsewhere", "Sec", FindScope::Section, Some("NB"), Some("Sec")));
-
-        assert!(page_in_scope("NB", "Other", FindScope::Notebook, Some("NB"), Some("Sec")));
-        assert!(!page_in_scope("Elsewhere", "Sec", FindScope::Notebook, Some("NB"), Some("Sec")));
-
-        assert!(page_in_scope("Elsewhere", "Sec", FindScope::Vault, Some("NB"), Some("Sec")));
-        // nothing open: only "the whole vault" still means something
-        assert!(!page_in_scope("NB", "Sec", FindScope::Section, None, None));
-        assert!(page_in_scope("NB", "Sec", FindScope::Vault, None, None));
-    }
 
     #[test]
     fn the_match_walk_uses_chars_and_finds_every_occurrence() {
@@ -1389,12 +1297,6 @@ mod tests_panels {
         // overlapping occurrences are each a hit, so stepping never skips one
         let doubled = vec!["aaaa".to_string()];
         assert_eq!(find_in_texts(&doubled, "aa").len(), 3);
-    }
-
-    #[test]
-    fn a_short_title_keeps_the_label_readable() {
-        assert_eq!(short_title("Note", 18), "Note");
-        assert_eq!(short_title("A very long page title indeed", 10), "A very lo…");
     }
 
     #[test]
@@ -1505,7 +1407,12 @@ impl NoteCraft {
             img_rounded: state.img_rounded.unwrap_or(false),
             img_radius: CornerStep::from_id(state.img_radius.as_deref()),
             note_text: NoteTextSize::from_id(state.note_text.as_deref()),
-            note_font: theme::NoteFont::from_id(state.note_font.as_deref()),
+            // A state file with no `note_font` opens in the theme's own face (Carlito under
+            // WordCraft); a face the user picked is kept exactly as written.
+            note_font: match state.note_font.as_deref() {
+                Some(id) => theme::NoteFont::from_id(Some(id)),
+                None => t.default_note,
+            },
             spell: spell::Dict::from_id(state.spell.as_deref()),
             spell_ignore: state.spell_ignore.unwrap_or_default(),
             spell_menu_word: None,
@@ -1548,8 +1455,10 @@ impl NoteCraft {
                     .unwrap_or(now)
             },
             due_pick: None,
-            find: None,
-            find_cache: None,
+            last_needle: None,
+            find_pos: 0,
+            pending_edit: None,
+            pending_clip: None,
             title_sent: "NoteCraft".to_owned(),
             trash_open: false,
             task_status: TaskStatus::default(),
@@ -2134,88 +2043,6 @@ impl NoteCraft {
         find_in_texts(&texts, needle)
     }
 
-    /// Every match in the scope, in vault order (section order inside a section).
-    ///
-    /// The order is the vault's, not "the open page first": walking the hits reopens pages, and a
-    /// list that reordered itself around whichever page was open made Enter jump somewhere new
-    /// every time. The open page contributes its matches from the live document, so unsaved words
-    /// are searchable; the rest come from `scope_page_texts`.
-    fn find_in_scope(&mut self, scope: FindScope, needle: &str) -> Vec<FindHit> {
-        let mut out = Vec::new();
-        if needle.trim().is_empty() {
-            return out;
-        }
-        self.ensure_find_cache(scope);
-        let open = self.page.clone();
-        let live = self.find_in_doc(needle);
-        let Some(cache) = self.find_cache.as_ref() else {
-            return out;
-        };
-        for (path, title, texts) in &cache.pages {
-            let ranges = if Some(path.as_path()) == open.as_deref() {
-                live.clone()
-            } else {
-                find_in_texts(texts, needle)
-            };
-            for (block, range) in ranges {
-                out.push(FindHit {
-                    page: path.clone(),
-                    page_title: title.clone(),
-                    block,
-                    range,
-                });
-            }
-        }
-        out
-    }
-
-    /// Fill `find_cache` with the block texts of the pages in `scope`, unless the copy in hand is
-    /// still good for it (same scope, same anchor, same vault generation).
-    fn ensure_find_cache(&mut self, scope: FindScope) {
-        let anchor = format!("{:?}/{:?}", self.nb, self.sec);
-        let fresh = self
-            .find_cache
-            .as_ref()
-            .map(|c| {
-                c.scope == scope && c.anchor == anchor && c.generation == self.vault.generation
-            })
-            .unwrap_or(false);
-        if fresh {
-            return;
-        }
-        let mut pages = Vec::new();
-        for p in &self.vault.pages {
-            if p.unreadable {
-                continue;
-            }
-            if !page_in_scope(&p.notebook, &p.section, scope, self.nb.as_deref(), self.sec.as_deref())
-            {
-                continue;
-            }
-            // the document, not the markdown: the same matching rule as the page that is open, and
-            // landing needs the document's own block indices
-            let d = doc::load(&p.path).unwrap_or_else(|| doc::from_markdown(&p.body));
-            let texts: Vec<String> = d.blocks.iter().map(|b| b.text()).collect();
-            pages.push((p.path.clone(), p.title.clone(), texts));
-        }
-        self.find_cache = Some(FindCache {
-            scope,
-            anchor,
-            generation: self.vault.generation,
-            pages,
-        });
-    }
-
-    /// Jump to a hit, opening its page first when it is somewhere else.
-    fn land_on_find_hit(&mut self, hit: &FindHit) {
-        if self.page.as_deref() != Some(hit.page.as_path()) {
-            self.open_page(&hit.page, false);
-        }
-        // the page may have changed since the hit list was built: never index past its blocks
-        let last = self.doc.blocks.len().saturating_sub(1);
-        self.land_on_block_range(hit.block.min(last), hit.range);
-    }
-
     /// Put the caret on `range` in block `i` and bring that block into view.
     fn land_on_block_range(&mut self, i: usize, range: (usize, usize)) {
         self.pending_land = Some((i, range));
@@ -2303,7 +2130,6 @@ impl NoteCraft {
             }
             "Toggle notebooks panel" => self.rail_open = !self.rail_open,
             "Toggle page list" => self.pages_open = !self.pages_open,
-            "Find in page" => self.open_find_bar(),
             "Duplicate page" => match self.page.clone() {
                 Some(p) => match Ops::duplicate_page(&p) {
                     Ok(newp) => {
@@ -2327,6 +2153,11 @@ impl NoteCraft {
     fn cycle_theme(&mut self) {
         self.theme_idx = (self.theme_idx + 1) % theme::themes().len();
         self.theme = theme::themes()[self.theme_idx];
+        // A theme brings its own type: WordCraft opens a note in Carlito, the house themes in
+        // Chakra Petch, and the Display menu overrides that pick until the next theme change.
+        self.note_font = self.theme.default_note;
+        theme::set_note_font(self.note_font);
+        self.save_state_soon();
         self.flash(format!("theme: {}", self.theme.label));
     }
 
@@ -2527,12 +2358,14 @@ impl NoteCraft {
             }
         }
         if f {
-            // Find means the open page when there is one — that is what Ctrl+F does in every
-            // editor. With no page open it falls back to the section filter, which is where it
-            // used to always go.
-            // Ctrl+F with the bar already open only takes the query back: clearing what was typed
-            // would make "search for this other word" mean retyping it from nothing
-            self.open_find_bar();
+            // One search, not two. The palette reads titles, tags and bodies across the vault and
+            // lands the caret on the hit; F3 then walks the other occurrences in that note. There is
+            // no second field to open, so Ctrl+F and Ctrl+K are the same key by design.
+            self.palette = Some(Palette {
+                query: String::new(),
+                sel: 0,
+                focus: true,
+            });
         }
     }
 
@@ -2776,252 +2609,136 @@ impl NoteCraft {
         }
     }
 
-    /// The find-scope row, always on screen under the toolbar.
-    ///
-    /// The same three-way toggle lives inside the find bar, but a control that only exists while a
-    /// popup is open is a control half the users never find — this one is part of the window, and
-    /// clicking a scope opens the bar in that scope so the row explains itself.
-    fn find_scope_row(&mut self, ctx: &egui::Context) {
-        // Find mode is the row *and* the bar: the toolbar's Find button turns both on and off, so
-        // the note gets the 32px back the moment you stop searching.
-        let Some(scope_now) = self.find.as_ref().map(|f| f.scope) else {
-            return;
-        };
-        let t = self.theme;
-        let mut picked: Option<FindScope> = None;
-        let current = scope_now;
-        egui::TopBottomPanel::top("findscope")
-            .exact_height(32.0)
-            .frame(
-                egui::Frame::new()
-                    .fill(t.panel)
-                    .inner_margin(Margin::symmetric(14, 3)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("find in").size(11.0).color(t.faint));
-                    egui::Frame::new()
-                        .fill(t.panel2)
-                        .stroke(Stroke::new(1.0_f32, t.border))
-                        .corner_radius(CornerRadius::same(9))
-                        .inner_margin(Margin::symmetric(3, 1))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                for s in
-                                    // widest first — All · Notebook · Section — as the user asked
-                                    [FindScope::Vault, FindScope::Notebook, FindScope::Section]
-                                {
-                                    if theme::segment_button(ui, s.label(), current == s, &t)
-                                        .on_hover_text(s.hint())
-                                        .clicked()
-                                    {
-                                        picked = Some(s);
-                                    }
-                                    ui.add_space(1.0);
-                                }
-                            });
-                        });
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new("Enter next · Shift+Enter back · Esc closes")
-                            .size(11.0)
-                            .color(t.faint),
-                    );
-                });
-            });
-        if let Some(scope) = picked {
-            // a new scope is a new search: reset the walk and hand the keyboard back to the field
-            if let Some(f) = self.find.as_mut() {
-                f.scope = scope;
-                f.focus = true;
-                f.current = 0;
-                f.landed = false;
-            }
-        }
-    }
-
     fn top_bar(&mut self, ctx: &egui::Context) {
         let t = self.theme;
         let mut attach_clicked = false;
         let mut paste_clicked = false;
         let mut snip_clicked = false;
-        let mut find_clicked = false;
+        let mut search_clicked = false;
         let mut export: Option<ExFmt> = None;
+
+        // ---- row 1: the document's identity and the way into search
         egui::TopBottomPanel::top("top")
-            .exact_height(52.0)
+            .exact_height(theme::BAR_ROW1_H)
             .frame(
                 egui::Frame::new()
                     .fill(t.panel)
-                    .inner_margin(Margin::symmetric(14, 8)),
+                    .inner_margin(Margin::symmetric(theme::BAR_PAD as i8, 4)),
             )
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
-                    // The app's own title first, as asked: the wordmark and the place you are in.
-                    let mark = egui::Frame::new()
-                        .fill(t.accent.gamma_multiply(0.18))
-                        .corner_radius(CornerRadius::same(9))
-                        .inner_margin(Margin::symmetric(8, 4));
-                    mark.show(ui, |ui| {
-                        ui.label(
-                            RichText::new("NOTE")
-                                .family(theme::fam(theme::F_BOLD))
-                                .size(13.0)
-                                .color(t.accent),
-                        );
-                    });
-                    ui.add_space(4.0);
+                    ui.spacing_mut().item_spacing = Vec2::new(theme::BAR_ITEM_GAP, 0.0);
+                    // The wordmark is painted into a fixed 24 pt box, not wrapped in a Frame: a
+                    // Frame's height comes from the text inside it, which made it 21 pt beside a
+                    // 24 pt search box and put the row's three baselines on three lines.
+                    let mark_font = egui::FontId::new(theme::BAR_FONT, theme::fam(theme::F_BOLD));
+                    let g = ui.fonts_mut(|f| f.layout_no_wrap("NOTE".to_owned(), mark_font, t.accent));
+                    let (mark, _) = ui.allocate_exact_size(
+                        Vec2::new(g.size().x + 16.0, theme::BAR_CTRL_H),
+                        Sense::hover(),
+                    );
+                    ui.painter().rect_filled(
+                        mark,
+                        CornerRadius::same(t.radius),
+                        t.accent.gamma_multiply(0.18),
+                    );
+                    ui.painter().galley(
+                        egui::Pos2::new(
+                            mark.center().x - g.size().x * 0.5,
+                            mark.center().y - g.size().y * 0.5,
+                        ),
+                        g,
+                        t.accent,
+                    );
+                    ui.add_space(6.0);
                     let crumb = match (&self.nb, &self.sec) {
                         (Some(n), Some(s)) => format!("{n}  /  {s}"),
                         (Some(n), None) => n.clone(),
                         _ => "no notebook".into(),
                     };
-                    // The breadcrumb is the widest and least essential thing in the bar — it is also
-                    // in the window title — and it used to be an unbounded label drawn *before* the
-                    // button cluster, which is laid out into whatever is left: at 780 pt the cluster
-                    // overflowed leftwards and "Personal / Notes" printed through `Edit` and `Find`.
-                    // It gets a bounded slot, and no slot at all when the window is narrow.
-                    let room = (ui.available_width() - TOOLBAR_TAIL_W).max(0.0);
-                    // `Find` is a second copy of Ctrl+F, so it is the first thing to go when the bar
-                    // cannot hold the button cluster *and* it: at 780 pt the cluster overflowed
-                    // leftwards and printed through the word "Find" itself.
-                    let find_room = room > 50.0;
-                    let crumb_room = (room - if find_room { 70.0 } else { 8.0 }).max(0.0);
-                    let crumb_w = text_w(ui, &crumb, 13.0, false).min(crumb_room).min(320.0);
+                    // The breadcrumb is the widest and least essential thing in the row — it is also
+                    // in the window title — so it gets a slot measured against what the right-hand
+                    // end needs (the search box and the theme switch) and no slot at all when that
+                    // leaves nothing.
+                    let tail = SEARCH_BOX_W + theme::BAR_CTRL_H + 36.0;
+                    let room = (ui.available_width() - tail).max(0.0);
+                    let crumb_w =
+                        text_w(ui, &crumb, theme::BAR_FONT, false).min(room).min(320.0);
                     if crumb_w > 40.0 {
                         ui.add_sized(
-                            [crumb_w, 22.0],
+                            [crumb_w, theme::BAR_CTRL_H],
                             egui::Label::new(
                                 RichText::new(crumb)
                                     .family(theme::fam(theme::F_MED))
-                                    .size(13.0)
+                                    .size(theme::BAR_FONT)
                                     .color(t.dim),
                             )
                             .truncate(),
                         );
                     }
-                    ui.add_space(10.0);
-                    // then the find toggle, then the rest
-                    let find_on = self.find.is_some();
-                    if find_room
-                        && theme::segment_button(ui, "Find", find_on, &t)
-                            .on_hover_text(
-                                "show / hide the find row: scope, field and counter (Ctrl+F, Esc)",
-                            )
-                            .clicked()
-                    {
-                        find_clicked = true;
-                    }
-                    ui.add_space(8.0);
-
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if theme::icon_button(ui, "◑", "cycle theme (Ctrl+Shift+T)", &t).clicked() {
+                        ui.spacing_mut().item_spacing = Vec2::new(theme::BAR_ITEM_GAP, 0.0);
+                        if theme::icon_button_bar(ui, "◑", "cycle theme (Ctrl+Shift+T)", &t).clicked() {
                             self.cycle_theme();
                         }
-                        // How the note is drawn: pictures centred / with rounded corners, and the
-                        // size of its text. These are display preferences, so they live in the bar
-                        // and survive a restart — a page never carries them.
-                        // `CloseOnClickOutside`, not the default `CloseOnClick`: the two picture
-                        // toggles are independent, so turning on both must not mean opening the
-                        // menu twice. It stays up until the pointer goes elsewhere (or Esc).
-                        let _ = egui::containers::menu::MenuButton::new("Display")
-                            .config(
-                                egui::containers::menu::MenuConfig::new()
-                                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
-                            )
-                            .ui(ui, |ui| {
-                            // A fixed width, not a minimum: every row in here is as wide as the menu
-                            // (`ui.available_width()`), so a minimum let the popup grow into whatever
-                            // the screen had left — the note-font rows made that visibly wrong.
-                            ui.set_width(196.0);
-                            if menu_toggle(ui, self.img_center, "Centre pictures", &t) {
-                                self.img_center = !self.img_center;
-                                self.save_state_soon();
-                            }
-                            if menu_toggle(ui, self.img_rounded, "Rounded corners", &t) {
-                                self.img_rounded = !self.img_rounded;
-                                self.save_state_soon();
-                            }
-                            // How round the corners are is only a question while rounding is on, so
-                            // the row appears with the toggle and goes with it.
-                            if self.img_rounded {
-                                if let Some(step) = step_row(
-                                    ui,
-                                    "corners",
-                                    self.img_radius,
-                                    [
-                                        ("S", CornerStep::Small, "small corner radius"),
-                                        ("M", CornerStep::Medium, "medium corner radius"),
-                                        ("L", CornerStep::Large, "large corner radius"),
-                                    ],
-                                    &t,
-                                ) {
-                                    self.img_radius = step;
-                                    self.save_state_soon();
-                                }
-                            }
-                            ui.separator();
-                            if let Some(size) = step_row(
-                                ui,
-                                "text size",
-                                self.note_text,
-                                [
-                                    ("S", NoteTextSize::Small, "small note text"),
-                                    ("M", NoteTextSize::Medium, "medium note text"),
-                                    ("L", NoteTextSize::Large, "large note text (the default)"),
-                                ],
-                                &t,
-                            ) {
-                                self.note_text = size;
-                                self.save_state_soon();
-                            }
-                            ui.separator();
-                            if let Some(face) = menu_fonts(ui, self.note_font, &t) {
-                                self.note_font = face;
-                                // every note laid out from here on, this frame included, reads the
-                                // switch — so the note behind the menu re-sets itself as it is picked
-                                theme::set_note_font(face);
-                                self.save_state_soon();
-                            }
-                            ui.separator();
-                            // Spelling: off by default, and either side of the Atlantic. The list a
-                            // note is checked against is a display preference like the face — it says
-                            // nothing about the note itself, so it lives in state.json, not the file.
-                            // The label sits on its own line and the chips below it: "British" and
-                            // "American" together are wider than the menu, and squeezing them in
-                            // beside a label wrapped "American" onto two lines.
-                            ui.label(
-                                RichText::new("spelling")
-                                    .family(theme::fam(theme::F_MONO))
-                                    .size(11.0)
-                                    .color(t.faint),
-                            );
-                            ui.horizontal(|ui| {
-                                for (label, dict, tip) in [
-                                    ("Off", spell::Dict::Off, "no spellchecking"),
-                                    (
-                                        "British",
-                                        spell::Dict::British,
-                                        "British English: colour, realise, centre",
-                                    ),
-                                    (
-                                        "American",
-                                        spell::Dict::American,
-                                        "American English: color, realize, center",
-                                    ),
-                                ] {
-                                    let on = self.spell == dict;
-                                    if theme::segment_button(ui, label, on, &t)
-                                        .on_hover_text(tip)
-                                        .clicked()
-                                        && !on
-                                    {
-                                        self.spell = dict;
-                                        self.save_state_soon();
-                                    }
-                                }
-                            });
-                            });
-                        ui.menu_button("Export", |ui| {
+                        if search_box(ui, &t).clicked() {
+                            search_clicked = true;
+                        }
+                    });
+                });
+            });
+
+        // ---- row 2: the tab strip, ruled off from the ribbon content under it
+        // ---- row 2: the tab line, then the commands that belong to the tab that is up
+        egui::TopBottomPanel::top("ribbon")
+            .exact_height(theme::BAR_TABS_H + theme::BAR_CONTENT_H)
+            .frame(
+                egui::Frame::new()
+                    // a shade off the row above it, the same three strips in every theme
+                    .fill(t.panel2)
+                    .inner_margin(Margin {
+                        left: theme::BAR_PAD as i8,
+                        right: theme::BAR_PAD as i8,
+                        top: 0,
+                        bottom: 0,
+                    }),
+            )
+            .show(ctx, |ui| {
+                let band = ui.max_rect();
+                // No spacing between the two strips: the row gap is part of the two heights, and a
+                // 5 pt item spacing here stole the caption line's last points and clipped it.
+                ui.spacing_mut().item_spacing.y = 0.0;
+                {
+                    // A ribbon is flat: egui's stock buttons (Export, Display) would otherwise draw a
+                    // box on the band and be the only boxed controls in it.
+                    let w = &mut ui.visuals_mut().widgets;
+                    w.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+                    w.inactive.bg_fill = egui::Color32::TRANSPARENT;
+                    w.inactive.bg_stroke = egui::Stroke::NONE;
+                    w.inactive.fg_stroke = egui::Stroke::new(1.0_f32, t.dim);
+                    w.hovered.weak_bg_fill = t.card_hover;
+                }
+                // the tab line: the views, and the two commands that are not a view at all
+                let strip = ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
+                    if theme::ribbon_tab(ui, "Pages", self.view == View::Pages, &t, theme::BAR_TABS_H)
+                        .clicked()
+                    {
+                        self.view = View::Pages;
+                    }
+                    if theme::ribbon_tab(ui, "Tasks", self.view == View::Tasks, &t, theme::BAR_TABS_H)
+                        .clicked()
+                    {
+                        self.view = View::Tasks;
+                    }
+                    if theme::ribbon_tab(ui, "Tags", self.view == View::Tags, &t, theme::BAR_TABS_H)
+                        .clicked()
+                    {
+                        self.view = View::Tags;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing = Vec2::new(theme::BAR_ITEM_GAP, 0.0);
+                        theme::ribbon_menu(ui, "Export", &t, false, |ui| {
                             if ui.button("HTML (single file)…").clicked() {
                                 export = Some(ExFmt::Html);
                                 ui.close();
@@ -3039,48 +2756,173 @@ impl NoteCraft {
                                 ui.close();
                             }
                         });
-                        bar_rule(ui, &t);
-                        if theme::toolbar_button(ui, "Snip", false, &t)
-                            .on_hover_text("drag a region of the screen into this note (Ctrl+Shift+S)")
-                            .clicked()
-                        {
-                            // handled after the panel: the grabber is a separate process
-                            snip_clicked = true;
-                        }
-                        if theme::toolbar_button(ui, "Attach", false, &t).clicked() {
-                            // handled after the panel: the chooser blocks
-                            attach_clicked = true;
-                        }
-                        if theme::toolbar_button(ui, "Paste", false, &t).clicked() {
-                            paste_clicked = true;
-                        }
-                        bar_rule(ui, &t);
-                        let (pages_active, tasks_active, tags_active) = (
-                            self.view == View::Pages,
-                            self.view == View::Tasks,
-                            self.view == View::Tags,
-                        );
-                        if theme::toolbar_button(ui, "Tags", tags_active, &t).clicked() {
-                            self.view = View::Tags;
-                        }
-                        if theme::toolbar_button(ui, "Tasks", tasks_active, &t).clicked() {
-                            self.view = View::Tasks;
-                        }
-                        if theme::toolbar_button(ui, "Pages", pages_active, &t).clicked() {
-                            self.view = View::Pages;
-                        }
-                        bar_rule(ui, &t);
-                        if theme::toolbar_button(
-                            ui,
-                            if self.read_mode { "Edit" } else { "Read" },
-                            self.read_mode,
-                            &t,
-                        )
-                        .clicked()
-                        {
-                            self.read_mode = !self.read_mode;
-                        }
+                        theme::ribbon_menu(ui, "Display", &t, true, |ui| self.display_menu(ui, &t));
                     });
+                });
+                ui.painter().hline(
+                    band.x_range(),
+                    strip.response.rect.max.y,
+                    egui::Stroke::new(1.0_f32, t.border),
+                );
+                // The command row: the groups of the tab that is up. Search is not one of them — the
+                // palette does it (title row, Ctrl+K, Ctrl+F) and F3 walks the matches it lands on.
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(theme::BAR_ITEM_GAP, 0.0);
+                    match self.view {
+                        View::Pages => {
+                            // What the right-click menu offers, one row up, acting on the same target:
+                            // the marked blocks, or the block the caret is in.
+                            let targets: Vec<usize> = match self.block_sel {
+                                Some((a, b)) if b > a => {
+                                    (a..=b).filter(|i| *i < self.doc.blocks.len()).collect()
+                                }
+                                _ => self.selected_block.into_iter().collect(),
+                            };
+                            let ms = menu_state(&self.doc, &targets, self.block_selection);
+                            theme::ribbon_group(ui, "clipboard", &t, |ui| {
+                                ui.horizontal(|ui| {
+                                    if theme::toolbar_icon_button(ui, theme::Icon::Cut, "Cut", false, &t)
+                                        .clicked()
+                                    {
+                                        self.pending_clip = Some(ClipAction::Cut);
+                                    }
+                                    if theme::toolbar_icon_button(ui, theme::Icon::Copy, "Copy", false, &t)
+                                        .clicked()
+                                    {
+                                        self.pending_clip = Some(ClipAction::Copy);
+                                    }
+                                    if theme::toolbar_icon_button(ui, theme::Icon::Paste, "Paste", false, &t).clicked() {
+                                        paste_clicked = true;
+                                    }
+                                });
+                            });
+                            group_rule(ui, &t);
+                            theme::ribbon_group(ui, "insert", &t, |ui| {
+                                ui.horizontal(|ui| {
+                                    if theme::toolbar_icon_button(ui, theme::Icon::Attach, "Attach", false, &t).clicked() {
+                                        // handled after the panel: the chooser blocks
+                                        attach_clicked = true;
+                                    }
+                                    if theme::toolbar_icon_button(ui, theme::Icon::Snip, "Snip", false, &t)
+                                        .on_hover_text(
+                                            "drag a region of the screen into this note (Ctrl+Shift+S)",
+                                        )
+                                        .clicked()
+                                    {
+                                        // handled after the panel: the grabber is its own process
+                                        snip_clicked = true;
+                                    }
+                                });
+                            });
+                            group_rule(ui, &t);
+                            theme::ribbon_group(ui, "style", &t, |ui| {
+                                ui.horizontal(|ui| {
+                                    for (icon, label, kind) in [
+                                        (theme::Icon::Heading, "Heading", doc::Kind::Heading(1)),
+                                        (theme::Icon::Task, "Task", doc::Kind::Todo),
+                                        (theme::Icon::Bullet, "Bullet", doc::Kind::Bullet),
+                                        (theme::Icon::Plain, "Plain", doc::Kind::Para),
+                                    ] {
+                                        if theme::toolbar_icon_button(
+                                            ui,
+                                            icon,
+                                            label,
+                                            ms.kind == Some(kind),
+                                            &t,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.pending_edit = Some(Edit::Kind(kind));
+                                        }
+                                    }
+                                });
+                            });
+                            // The row drops from the right when there is no room: at 820 pt the text
+                            // group alone would be cut mid-label ("Strik"), which is worse than not
+                            // offering it. Clipboard, insert and style always stay; text, size and mark
+                            // go together, so the bar never shows S/M/L without Bold and Italic.
+                            if ui.available_width() > 262.0 {
+                                group_rule(ui, &t);
+                                theme::ribbon_group(ui, "text", &t, |ui| {
+                                    ui.horizontal(|ui| {
+                                        for (icon, label, which, on) in [
+                                            (theme::Icon::Bold, "Bold", 0u8, ms.bold),
+                                            (theme::Icon::Italic, "Italic", 1, ms.italic),
+                                            (theme::Icon::Code, "Code", 2, ms.code),
+                                            (theme::Icon::Strike, "Strike", 3, ms.strike),
+                                        ] {
+                                            if theme::toolbar_icon_button(ui, icon, label, on, &t)
+                                                .clicked()
+                                            {
+                                                self.pending_edit = Some(Edit::Attr(which));
+                                            }
+                                        }
+                                    });
+                                });
+                                if ui.available_width() > 110.0 {
+                                    group_rule(ui, &t);
+                                    theme::ribbon_group(ui, "size", &t, |ui| {
+                                        ui.horizontal(|ui| {
+                                            for (label, step) in [("S", -1i8), ("M", 0), ("L", 1)] {
+                                                if theme::toolbar_button(
+                                                    ui,
+                                                    label,
+                                                    ms.size == Some(step),
+                                                    &t,
+                                                )
+                                                .clicked()
+                                                {
+                                                    self.pending_edit = Some(Edit::Size(step));
+                                                }
+                                            }
+                                        });
+                                    });
+                                }
+                                if ui.available_width() > 140.0 {
+                                    group_rule(ui, &t);
+                                    theme::ribbon_group(ui, "mark", &t, |ui| {
+                                        if let Some(mark) = ribbon_marks(ui, &ms.marks, &t) {
+                                            self.pending_edit = Some(Edit::Mark(mark));
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        View::Tasks => {
+                            theme::ribbon_group(ui, "status", &t, |ui| {
+                                ui.horizontal(|ui| {
+                                    for (label, v) in [
+                                        ("All", TaskStatus::All),
+                                        ("Open", TaskStatus::Open),
+                                        ("Done", TaskStatus::Done),
+                                    ] {
+                                        if filter_chip(ui, label, self.task_status == v, &t) {
+                                            self.task_status = v;
+                                        }
+                                    }
+                                });
+                            });
+                            group_rule(ui, &t);
+                            theme::ribbon_group(ui, "due", &t, |ui| {
+                                ui.horizontal(|ui| {
+                                    for (label, v) in [
+                                        ("Any", TaskDue::Any),
+                                        ("Overdue", TaskDue::Overdue),
+                                        ("Today", TaskDue::Today),
+                                        ("This week", TaskDue::Week),
+                                        ("Later", TaskDue::Later),
+                                        ("No date", TaskDue::None),
+                                    ] {
+                                        if filter_chip(ui, label, self.task_due == v, &t) {
+                                            self.task_due = v;
+                                        }
+                                    }
+                                });
+                            });
+                        }
+                        // Tags has no commands of its own yet: the chips in the view are the actions.
+                        View::Tags => {}
+                    }
                 });
             });
         if attach_clicked {
@@ -3092,18 +2934,122 @@ impl NoteCraft {
         if paste_clicked && !self.paste_from_clipboard() {
             self.flash("no image or file on the clipboard");
         }
-        if find_clicked {
-            if self.find.is_some() {
-                self.find = None;
-                self.find_cache = None;
-            } else {
-                self.open_find_bar();
-            }
+        if search_clicked {
+            // the box in the title row is the door to the palette, not a second search of its own
+            self.palette = Some(Palette {
+                query: String::new(),
+                sel: 0,
+                focus: true,
+            });
         }
         if let Some(how) = export {
             self.export_page(ctx, how);
         }
     }
+
+    /// The Display menu's contents: how the note is drawn and set. It lives in its own method
+    /// because the two-row bar puts it in a ribbon group, and ninety rows of menu inline inside a
+    /// tab strip made the bar unreadable.
+    fn display_menu(&mut self, ui: &mut egui::Ui, t: &Theme) {
+            // A fixed width, not a minimum: every row in here is as wide as the menu
+            // (`ui.available_width()`), so a minimum let the popup grow into whatever
+            // the screen had left — the note-font rows made that visibly wrong.
+            ui.set_width(196.0);
+            // Reading has no tab of its own any more: the tab line is the views, as in WordCraft, and
+            // the display mode belongs with the other display switches.
+            if menu_toggle(ui, self.read_mode, "read mode", &t) {
+                self.read_mode = !self.read_mode;
+            }
+            ui.separator();
+            if menu_toggle(ui, self.img_center, "Centre pictures", &t) {
+                self.img_center = !self.img_center;
+                self.save_state_soon();
+            }
+            if menu_toggle(ui, self.img_rounded, "Rounded corners", &t) {
+                self.img_rounded = !self.img_rounded;
+                self.save_state_soon();
+            }
+            // How round the corners are is only a question while rounding is on, so
+            // the row appears with the toggle and goes with it.
+            if self.img_rounded {
+                if let Some(step) = step_row(
+                    ui,
+                    "corners",
+                    self.img_radius,
+                    [
+                        ("S", CornerStep::Small, "small corner radius"),
+                        ("M", CornerStep::Medium, "medium corner radius"),
+                        ("L", CornerStep::Large, "large corner radius"),
+                    ],
+                    &t,
+                ) {
+                    self.img_radius = step;
+                    self.save_state_soon();
+                }
+            }
+            ui.separator();
+            if let Some(size) = step_row(
+                ui,
+                "text size",
+                self.note_text,
+                [
+                    ("S", NoteTextSize::Small, "small note text"),
+                    ("M", NoteTextSize::Medium, "medium note text"),
+                    ("L", NoteTextSize::Large, "large note text (the default)"),
+                ],
+                &t,
+            ) {
+                self.note_text = size;
+                self.save_state_soon();
+            }
+            ui.separator();
+            if let Some(face) = menu_fonts(ui, self.note_font, &t) {
+                self.note_font = face;
+                // every note laid out from here on, this frame included, reads the
+                // switch — so the note behind the menu re-sets itself as it is picked
+                theme::set_note_font(face);
+                self.save_state_soon();
+            }
+            ui.separator();
+            // Spelling: off by default, and either side of the Atlantic. The list a
+            // note is checked against is a display preference like the face — it says
+            // nothing about the note itself, so it lives in state.json, not the file.
+            // The label sits on its own line and the chips below it: "British" and
+            // "American" together are wider than the menu, and squeezing them in
+            // beside a label wrapped "American" onto two lines.
+            ui.label(
+                RichText::new("spelling")
+                    .family(theme::fam(theme::F_MONO))
+                    .size(11.0)
+                    .color(t.faint),
+            );
+            ui.horizontal(|ui| {
+                for (label, dict, tip) in [
+                    ("Off", spell::Dict::Off, "no spellchecking"),
+                    (
+                        "British",
+                        spell::Dict::British,
+                        "British English: colour, realise, centre",
+                    ),
+                    (
+                        "American",
+                        spell::Dict::American,
+                        "American English: color, realize, center",
+                    ),
+                ] {
+                    let on = self.spell == dict;
+                    if theme::segment_button(ui, label, on, &t)
+                        .on_hover_text(tip)
+                        .clicked()
+                        && !on
+                    {
+                        self.spell = dict;
+                        self.save_state_soon();
+                    }
+                }
+            });
+    }
+
 
     /// Export the open page: one self-contained HTML file, a PDF made from it, plain text, or the
     /// markdown on the clipboard.
@@ -3335,22 +3281,6 @@ impl NoteCraft {
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // The flash message is the widest variable thing here, and the leftmost in a
-                        // right-to-left cluster: it gets the room that is left, truncated, instead of
-                        // pushing the clock and the backend readout off the end.
-                        if !self.status.is_empty() {
-                            let room = (ui.available_width() - 4.0).max(0.0);
-                            ui.add_sized(
-                                [room, 16.0],
-                                egui::Label::new(
-                                    RichText::new(self.status.clone())
-                                        .family(theme::fam(theme::F_MED))
-                                        .size(11.0)
-                                        .color(t.accent),
-                                )
-                                .truncate(),
-                            );
-                        }
                         // The vault's own path used to sit here — the longest, least useful label in
                         // the window, and the first thing a narrow bar clipped. It is in the window
                         // title's place, in `~/.config/notecraft/state.json`, and in the tooltip of
@@ -3415,6 +3345,27 @@ impl NoteCraft {
                             .truncate(),
                         )
                         .on_hover_text("now, on this machine's local clock");
+                        // The flash goes in LAST, which in a right-to-left cluster puts it to the
+                        // left of the clock — and, because everything to its right is already
+                        // placed, growing or clearing it cannot move the keyboard chip. Drawn first
+                        // (the old order) it took the whole remaining width and shoved the chip to
+                        // the left for as long as the message lasted: a click on the chip made the
+                        // chip itself jump. It is sized to its own text, never to the room left.
+                        if !self.status.is_empty() {
+                            let room = (ui.available_width() - 4.0).max(0.0);
+                            let w = seg_w(ui, &self.status, 11.0, false).min(room);
+                            ui.add_sized(
+                                [w, 16.0],
+                                egui::Label::new(
+                                    RichText::new(self.status.clone())
+                                        .family(theme::fam(theme::F_MED))
+                                        .size(11.0)
+                                        .color(t.accent),
+                                )
+                                .truncate(),
+                            )
+                            .on_hover_text(&self.status);
+                        }
                     });
                 });
             });
@@ -3808,6 +3759,11 @@ impl NoteCraft {
             });
 
         if let Some((path, needle, line)) = land {
+            // F3 repeats what was typed in the page filter, not the line the hit sat on
+            if !self.search.trim().is_empty() {
+                self.last_needle = Some(self.search.trim().to_owned());
+                self.find_pos = 0;
+            }
             self.land_on_hit(ctx, &path, &needle, line);
         }
         if let Some(q) = search_all {
@@ -3897,13 +3853,28 @@ impl NoteCraft {
 
     fn central(&mut self, ctx: &egui::Context) {
         let t = self.theme;
+        // A theme that draws a page sheet gets the canvas right up to the panel's edges: the
+        // paper's own margins are the margins, so a panel margin here would be a second, narrower
+        // sheet inside the first.
+        let margin = if t.sheet {
+            Margin::symmetric(6, 0)
+        } else {
+            Margin::symmetric(18, 12)
+        };
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(t.bg)
-                    .inner_margin(Margin::symmetric(18, 12)),
-            )
+            .frame(egui::Frame::new().fill(t.bg).inner_margin(margin))
             .show(ctx, |ui| {
+                // The sheet is painted *before* the scroll area, so the note is written on the paper
+                // rather than over the whole window; the scroll area itself stays transparent.
+                if t.sheet && self.view == View::Pages && self.page.is_some() {
+                    let (x, page_w) = sheet_geo(ui.available_width());
+                    let canvas = ui.max_rect();
+                    let r = egui::Rect::from_min_size(
+                        egui::Pos2::new(canvas.min.x + x, canvas.min.y + 5.0),
+                        Vec2::new(page_w, (canvas.height() - 10.0).max(40.0)),
+                    );
+                    theme::paint_page_sheet(ui, r, &t);
+                }
                 match self.view {
                     View::Pages => self.page_view(ui),
                     View::Tasks => self.tasks_view(ui),
@@ -4004,15 +3975,30 @@ impl NoteCraft {
                 // panel — the text wrapped on a 880 pt measure and the right-hand end of each line
                 // was clipped away, which reads as "wordwrap is off".
                 let canvas = ui.available_width() - PAGE_SCROLLBAR_ALLOWANCE;
-                let column = canvas.min(880.0).max(240.0);
                 // When the canvas is wider than the measure, the column is *centred* in it. It used
                 // to be pinned to the left edge, so with both side panels folded the note sat in the
                 // first 880 of a 1210 pt page with every bit of the slack stacked on the right — a
                 // writing app with the text shoved into a corner. The indent is a horizontal
                 // `add_space`, which needs a horizontal layout to mean anything: in a vertical one
                 // it would push the note *down*.
+                //
+                // On a page sheet the column is the paper's text area and the inset is its left
+                // margin, both from `sheet_geo` — the same numbers the sheet itself was drawn with,
+                // so the words cannot drift off their own paper.
+                let column = canvas.min(880.0).max(240.0);
                 let slack = (canvas - column).max(0.0);
-                let inset = if slack > 40.0 { slack * 0.5 } else { 0.0 };
+                let (column, inset) = if t.sheet {
+                    let (x, page_w) = sheet_geo(ui.available_width());
+                    ((page_w - PAGE_PAD * 2.0).max(240.0), x + PAGE_PAD)
+                } else if slack > 40.0 {
+                    (column, slack * 0.5)
+                } else {
+                    (column, 0.0)
+                };
+                if t.sheet {
+                    // the paper's top margin: the title is written on the page, not on its edge
+                    ui.add_space(26.0);
+                }
                 ui.horizontal_top(|ui| {
                     ui.add_space(inset);
                     ui.vertical(|ui| {
@@ -5412,7 +5398,11 @@ impl NoteCraft {
                     Vec::new()
                 };
                 out.response.context_menu(|ui| {
-                    ui.set_min_width(210.0);
+                    // A *fixed* width, not a minimum. Every row in here allocates
+                    // `ui.available_width()`, so with a minimum the first row sized itself to whatever
+                    // the popup was allowed (nearly the window) and the menu came out 900 pt wide with
+                    // its labels in the left corner and its shortcuts in the right one.
+                    ui.set_width(230.0);
                     // Clipboard rows first: they act on the marking, so they are plain actions and
                     // get no checkbox (a tick would claim a state Copy does not have).
                     if menu_action(ui, "Copy", "Ctrl+C", &t) {
@@ -5476,10 +5466,6 @@ impl NoteCraft {
                     }
                     if menu_toggle(ui, ms.kind == Some(doc::Kind::Bullet), "Bullet", &t) {
                         cmd = Some(Edit::Kind(doc::Kind::Bullet));
-                        ui.close();
-                    }
-                    if menu_toggle(ui, ms.kind == Some(doc::Kind::Quote), "Quote", &t) {
-                        cmd = Some(Edit::Kind(doc::Kind::Quote));
                         ui.close();
                     }
                     if menu_toggle(ui, ms.kind == Some(doc::Kind::Para), "Plain text", &t) {
@@ -5747,6 +5733,16 @@ impl NoteCraft {
         // page was switched under it) must not leave the picture following the mouse.
         if self.resizing.is_some() && !ui.input(|i| i.pointer.any_down()) {
             self.resizing = None;
+        }
+
+        // ---------------- an edit the bar asked for
+        // Same commands as the context menu's rows, one row up: one code path, so pressing "Bold" in
+        // the bar and right-clicking → Bold cannot drift apart.
+        if let Some(edit) = self.pending_edit.take() {
+            cmd = Some(edit);
+        }
+        if let Some(action) = self.pending_clip.take() {
+            clip = Some(action);
         }
 
         // ---------------- the menu's edits, applied to the document
@@ -7168,49 +7164,9 @@ impl NoteCraft {
         });
         ui.add_space(6.0);
 
-        // filters: state, then when it is due. Chips, like the rest of the app — no dialog, no menu.
-        let t2 = t;
-        let mut status = self.task_status;
-        let mut due = self.task_due;
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                RichText::new("status")
-                    .family(theme::fam(theme::F_MONO))
-                    .size(10.5)
-                    .color(t2.faint),
-            );
-            for (label, v) in [
-                ("All", TaskStatus::All),
-                ("Open", TaskStatus::Open),
-                ("Done", TaskStatus::Done),
-            ] {
-                if filter_chip(ui, label, status == v, &t2) {
-                    status = v;
-                }
-            }
-            ui.add_space(10.0);
-            ui.label(
-                RichText::new("due")
-                    .family(theme::fam(theme::F_MONO))
-                    .size(10.5)
-                    .color(t2.faint),
-            );
-            for (label, v) in [
-                ("Any", TaskDue::Any),
-                ("Overdue", TaskDue::Overdue),
-                ("Today", TaskDue::Today),
-                ("This week", TaskDue::Week),
-                ("Later", TaskDue::Later),
-                ("No date", TaskDue::None),
-            ] {
-                if filter_chip(ui, label, due == v, &t2) {
-                    due = v;
-                }
-            }
-        });
-        self.task_status = status;
-        self.task_due = due;
-        ui.add_space(6.0);
+        // The status and due filters are the Tasks tab's commands, so they live in the ribbon over
+        // this view (see `top_bar`), not in a second copy above the list.
+        ui.add_space(2.0);
 
         let mut shown = 0usize;
         egui::ScrollArea::vertical()
@@ -7450,6 +7406,9 @@ impl NoteCraft {
         let mut close = false;
         let mut run: Option<Action> = None;
         let items = build_palette(&self.vault, &pal.query);
+        // What F3 will repeat. Not the hit's needle: for a body hit that is the whole line the word
+        // was found on, and walking "the rest of this line" is not what the reader asked for.
+        let query = pal.query.trim().to_owned();
 
         egui::Window::new("palette")
             .title_bar(false)
@@ -7555,7 +7514,11 @@ impl NoteCraft {
 
         if let Some(a) = run {
             match a {
-                Action::OpenPageAt(p, needle, line) => self.land_on_hit(ctx, &p, &needle, line),
+                Action::OpenPageAt(p, needle, line) => {
+                    self.last_needle = Some(query);
+                    self.find_pos = 0;
+                    self.land_on_hit(ctx, &p, &needle, line);
+                }
                 Action::OpenSection(nb, sec) => {
                     self.nb = Some(nb);
                     self.sec = Some(sec);
@@ -7570,207 +7533,58 @@ impl NoteCraft {
         }
     }
 
-    /// Find in the open page (Ctrl+F): a hit count, and Enter / Shift+Enter to walk the matches.
-    ///
-    /// It searches the document's blocks, not the markdown, so a match cannot be found in a marker
-    /// the user cannot see (`**`, `@due(...)`) and the range it lands on is the range egui's caret
-    /// wants. Read mode has no caret to put anywhere, so opening find switches to the editor.
-    /// Open the find bar, or take the keyboard back to it if it is already up.
-    ///
-    /// With no page open the bar still comes up, searching the whole vault: Ctrl+F that sometimes
-    /// did nothing (it used to focus the section filter instead) is Ctrl+F the user stops trusting.
-    fn open_find_bar(&mut self) {
-        if self.read_mode {
-            self.read_mode = false;
+    /// F3 / Shift+F3: step through the occurrences of the last search inside the open note.
+    fn find_keys(&mut self, ctx: &egui::Context) {
+        if self.palette.is_some() || self.confirm.is_some() || self.annotate.is_some() {
+            return;
         }
-        let scope = if self.page.is_some() {
-            FindScope::Section
-        } else {
-            FindScope::Vault
-        };
-        match self.find.as_mut() {
-            Some(f) => f.focus = true,
-            None => {
-                self.flash("find: Section · Notebook · All — Enter next, Esc closes");
-                self.find = Some(FindBar {
-                    query: String::new(),
-                    scope,
-                    focus: true,
-                    current: 0,
-                    landed: false,
-                });
-                // the scope's page texts are read on the first keystroke, not here
-                self.find_cache = None;
-            }
+        let (f3, shift_f3) = ctx.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::NONE, egui::Key::F3),
+                i.consume_key(egui::Modifiers::SHIFT, egui::Key::F3),
+            )
+        });
+        if f3 {
+            self.find_next_in_page(false);
+        } else if shift_f3 {
+            self.find_next_in_page(true);
         }
     }
 
-    fn find_bar(&mut self, ctx: &egui::Context) {
-        // taken out of `self` so the handlers below can call `&mut self` methods; put back at the end
-        let Some(mut f) = self.find.take() else {
+    /// Put the caret on the next (or previous) occurrence of `last_needle` in the open note, and say
+    /// which one it is in the status bar.
+    ///
+    /// This is all that is left of the find bar. The palette is the search — it reads titles, tags
+    /// and bodies across the vault and lands the caret on the hit — and the one thing it cannot do is
+    /// walk the *rest* of the occurrences in the page it just opened. That needs no field, no scope
+    /// and no row: one key, and the count where messages already go.
+    fn find_next_in_page(&mut self, back: bool) {
+        let Some(needle) = self
+            .last_needle
+            .clone()
+            .map(|n| n.trim().to_lowercase())
+            .filter(|n| !n.is_empty())
+        else {
+            self.flash("F3 repeats the last search — search first (Ctrl+K)");
             return;
         };
-        let t = self.theme;
-        let mut close = false;
-        // Some(true) = next match, Some(false) = previous
-        let mut step: Option<bool> = None;
-
-        let hits = self.find_in_scope(f.scope, &f.query);
-        // The bar is anchored to the top-right corner, so anything it does not fit into falls off
-        // the *left* edge — where the scope toggle lives. Clamping it to the window and letting the
-        // row wrap keeps every control on screen from a narrow window to a large UI scale.
-        let bar_w = (ctx.content_rect().width() - 48.0).clamp(240.0, 620.0);
-
-        // Stepping has to work from wherever the keyboard is: after a jump the caret sits in the
-        // *note* (that is what shows the match), so Enter there used to insert a newline instead of
-        // moving on. The bar therefore owns Enter while it is up and the keys are either in its
-        // field or on a match it put the caret on — and hands the key back everywhere else (a
-        // palette, a confirm dialog, or any other block the user clicked into).
-        let modal = self.palette.is_some() || self.confirm.is_some();
-        let mut keys_theirs = false;
-        if !modal {
-            let focus = ctx.memory(|m| m.focused());
-            let field = egui::Id::new("find_field");
-            let match_id = hits
-                .get(f.current.min(hits.len().saturating_sub(1)))
-                .map(|h| egui::Id::new(("block", h.block)));
-            keys_theirs = focus == Some(field) || (f.landed && focus.is_some() && focus == match_id);
-        }
-        if keys_theirs {
-            let enter = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-            let shift_enter =
-                ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Enter));
-            if enter {
-                step = Some(true);
-            } else if shift_enter {
-                step = Some(false);
-            }
-        }
-        // F3 / Shift+F3 are find-only keys: they mean "again" with the bar up, whatever has focus
-        if !modal {
-            let f3 = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F3));
-            let shift_f3 = ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::F3));
-            if step.is_none() {
-                if f3 {
-                    step = Some(true);
-                } else if shift_f3 {
-                    step = Some(false);
-                }
-            }
-        }
-        if !modal && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-            close = true;
-        }
-        egui::Window::new("find")
-            .id(egui::Id::new("find_bar"))
-            .title_bar(false)
-            .resizable(false)
-            .collapsible(false)
-            .anchor(Align2::RIGHT_TOP, Vec2::new(-16.0, 94.0))
-            .max_width(bar_w)
-            .frame(
-                egui::Frame::new()
-                    .fill(t.panel2)
-                    .stroke(Stroke::new(1.0_f32, t.accent.gamma_multiply(0.45)))
-                    .corner_radius(CornerRadius::same(10))
-                    .inner_margin(Margin::same(8)),
-            )
-            .show(ctx, |ui| {
-                ui.set_max_width(bar_w - 16.0);
-                ui.horizontal_wrapped(|ui| {
-                    // No toggle here: the permanent `find in …` row sits directly above this bar and
-                    // owns the scope, so the same three buttons would only crowd the field.
-                    let field = egui::Id::new("find_field");
-                    let resp = ui
-                        .add(
-                            egui::TextEdit::singleline(&mut f.query)
-                                .id(field)
-                                .hint_text("find")
-                                .desired_width(150.0),
-                        )
-                        .on_hover_text(
-                            "Enter next · Shift+Enter previous · F3 / Shift+F3 · Esc closes",
-                        );
-                    if f.focus {
-                        resp.request_focus();
-                        f.focus = false;
-                    }
-                    if resp.changed() {
-                        f.current = 0;
-                        f.landed = false;
-                    }
-                    let (label, col) = if f.query.trim().is_empty() {
-                        ("type to find".to_string(), t.faint)
-                    } else if hits.is_empty() {
-                        ("no matches".to_string(), t.warn)
-                    } else {
-                        // on another page, say which: the bar is the only thing that shows it
-                        let other = hits
-                            .get(f.current.min(hits.len() - 1))
-                            .filter(|h| Some(h.page.as_path()) != self.page.as_deref())
-                            .map(|h| short_title(&h.page_title, 16));
-                        (find_label(f.current, hits.len(), other.as_deref()), t.dim)
-                    };
-                    // A fixed-width box: the count, and the page name after it, would otherwise
-                    // resize the bar on every keystroke — which moved the scope buttons out from
-                    // under the pointer while the user was typing or stepping.
-                    ui.add_sized(
-                        [92.0, 18.0],
-                        egui::Label::new(
-                            RichText::new(label)
-                                .family(theme::fam(theme::F_MONO))
-                                .size(11.0)
-                                .color(col),
-                        )
-                        .truncate(),
-                    );
-                    if theme::icon_button(ui, "↑", "previous match (Shift+Enter, Shift+F3)", &t)
-                        .clicked()
-                    {
-                        step = Some(false);
-                    }
-                    if theme::icon_button(ui, "↓", "next match (Enter, F3)", &t).clicked() {
-                        step = Some(true);
-                    }
-                    if theme::icon_button(ui, "×", "close (Esc)", &t).clicked() {
-                        close = true;
-                    }
-                });
-            });
-
-        if close {
-            self.find = None;
-            self.find_cache = None;
+        let occ = self.find_in_doc(&needle);
+        if occ.is_empty() {
+            self.flash(format!("no matches for “{needle}” in this note"));
             return;
         }
-        if let Some(next) = step {
-            if !hits.is_empty() {
-                let len = hits.len();
-                // the first Enter after typing lands on match 1 rather than skipping it
-                f.current = if !f.landed {
-                    0
-                } else if next {
-                    (f.current + 1) % len
-                } else {
-                    (f.current + len - 1) % len
-                };
-                f.landed = true;
-                let hit = hits[f.current.min(len - 1)].clone();
-                // stepping off the end is a real jump on a multi-page scope; say so
-                if len > 1 && next && f.current == 0 {
-                    self.flash(format!("wrapped to the first of {len} matches"));
-                }
-                self.land_on_find_hit(&hit);
-            } else if !f.query.trim().is_empty() {
-                let where_ = match f.scope {
-                    FindScope::Section => "this section",
-                    FindScope::Notebook => "this notebook",
-                    FindScope::Vault => "the vault",
-                };
-                self.flash(format!("no matches in {where_}"));
-            }
-        }
-        self.find = Some(f);
+        let len = occ.len();
+        // the caret position can be stale after opening another note: clamp before stepping
+        let start = self.find_pos.min(len - 1);
+        let pos = if back {
+            (start + len - 1) % len
+        } else {
+            (start + 1) % len
+        };
+        self.find_pos = pos;
+        let (block, range) = occ[pos];
+        self.land_on_block_range(block, range);
+        self.flash(find_label(pos, len, None));
     }
 
     /// The "restore from .trash" dialog. Deletes are never hard deletes, so this is the way back
@@ -8127,7 +7941,6 @@ impl eframe::App for NoteCraft {
             self.title_sent = want_title;
         }
         self.top_bar(ctx);
-        self.find_scope_row(ctx);
         self.status_bar(ctx);
         if self.rail_open {
             self.left_rail(ctx);
@@ -8139,7 +7952,7 @@ impl eframe::App for NoteCraft {
         } else {
             self.panel_handle(ctx, "pages_handle", false, "open the page list (Ctrl+2)");
         }
-        self.find_bar(ctx);
+        self.find_keys(ctx);
         self.central(ctx);
         self.due_picker(ctx);
         self.dialogs(ctx);
@@ -8162,6 +7975,18 @@ impl eframe::App for NoteCraft {
 /// wider than egui's own scroll bar was: a 14 pt rail with a 2 pt groove was hard to see, let alone
 /// aim at.
 const PAGE_SCROLLBAR_ALLOWANCE: f32 = 22.0;
+
+/// Where the page sits on the canvas: `(x offset, page width)` for a canvas `width` pt wide.
+///
+/// One rule, asked by the painter that draws the sheet and by the note column that writes on it —
+/// two copies of this arithmetic is exactly how text ends up half a margin off its own paper. The
+/// text measure is the same 880 pt the full-bleed canvas uses, capped so the paper always keeps its
+/// margins inside the window.
+fn sheet_geo(width: f32) -> (f32, f32) {
+    let text = (width - PAGE_SCROLLBAR_ALLOWANCE).min(880.0).max(240.0);
+    let page_w = (text + PAGE_PAD * 2.0).min((width - 8.0).max(160.0));
+    ((width - page_w) * 0.5, page_w)
+}
 
 /// Is a picture close enough to the viewport to be worth decoding?
 ///
@@ -9155,6 +8980,52 @@ fn month_grid(
     picked
 }
 
+/// The highlighter swatches as the bar draws them: no label of their own (the group's caption says
+/// "mark"), sized to the bar rather than to a menu row. Returns the colour to set: 1–5, or 0 when the
+/// words already carry it and pressing again takes the marker off.
+fn ribbon_marks(ui: &mut egui::Ui, current: &[bool; 5], t: &Theme) -> Option<u8> {
+    let mut picked = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        for (i, on) in current.iter().enumerate() {
+            let colour = t.marks.get(i).copied().unwrap_or(t.faint);
+            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::click());
+            let swatch = egui::Rect::from_center_size(rect.center(), Vec2::splat(14.0));
+            let name = theme::MARK_NAMES.get(i).copied().unwrap_or("highlight");
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            ui.painter()
+                .rect_filled(swatch, CornerRadius::same(3), colour);
+            if *on {
+                ui.painter().rect_stroke(
+                    swatch.expand(2.0),
+                    CornerRadius::same(5),
+                    Stroke::new(1.4_f32, t.text),
+                    StrokeKind::Middle,
+                );
+            } else if resp.hovered() {
+                ui.painter().rect_stroke(
+                    swatch.expand(2.0),
+                    CornerRadius::same(5),
+                    Stroke::new(1.0_f32, t.accent),
+                    StrokeKind::Middle,
+                );
+            }
+            let clicked = resp.clicked();
+            resp.on_hover_text(if *on {
+                format!("{name} — click again to remove")
+            } else {
+                name.to_string()
+            });
+            if clicked {
+                picked = Some(if *on { 0 } else { i as u8 + 1 });
+            }
+        }
+    });
+    picked
+}
+
 /// The due-date rows shared by the tasks view's chip popup and the editor's right-click submenu:
 /// three presets, a real calendar for any other day, and Clear when there is a date to clear.
 fn due_rows(
@@ -9165,7 +9036,8 @@ fn due_rows(
 ) -> Option<DueChoice> {
     let today = chrono::Local::now().date_naive();
     let mut out = None;
-    ui.set_min_width(196.0);
+    // same rule as the editor's menu: fixed width, because every row here takes `available_width()`
+    ui.set_width(230.0);
     for (label, days) in [("Today", 0i64), ("Tomorrow", 1), ("In a week", 7)] {
         if menu_action(ui, label, &(today + chrono::Duration::days(days)).format("%d %b").to_string(), t) {
             out = Some(DueChoice::Set(today + chrono::Duration::days(days)));
@@ -9341,12 +9213,75 @@ fn status_seg(
 /// views, actions and settings, read as one undifferentiated strip; the rule says where one job ends.
 /// It is painted rather than `ui.separator()` because egui's own rule spans the whole interact height
 /// and takes its colour from `Visuals`, which on Paper is very nearly the panel itself.
-fn bar_rule(ui: &mut egui::Ui, t: &Theme) {
-    ui.add_space(8.0);
-    let (r, _) = ui.allocate_exact_size(Vec2::new(1.0, 18.0), Sense::hover());
-    ui.painter()
-        .rect_filled(r, CornerRadius::same(1), t.border);
-    ui.add_space(8.0);
+
+/// The rule between two ribbon groups.
+///
+/// The gaps either side are `BAR_GROUP_GAP` in every theme, counted from the row's own item spacing,
+/// so the band keeps one rhythm instead of a rule's 8 + a group's 6 + a button's 2.
+fn group_rule(ui: &mut egui::Ui, t: &Theme) {
+    let side = (theme::BAR_GROUP_GAP - theme::BAR_ITEM_GAP).max(0.0);
+    ui.add_space(side);
+    let (r, _) = ui.allocate_exact_size(
+        Vec2::new(1.0, theme::BAR_CONTENT_H - 14.0),
+        Sense::hover(),
+    );
+    ui.painter().rect_filled(r, CornerRadius::same(1), t.border);
+    ui.add_space(side);
+}
+
+/// The search field WordCraft puts in its title row: a box with a placeholder, and the shortcut
+/// written inside it. It is deliberately not a text field — this app searches through the command
+/// palette (pages, tags, sections and commands in one list), so the box is the door to that and
+/// says so instead of being a second, weaker search of its own.
+fn search_box(ui: &mut egui::Ui, t: &Theme) -> egui::Response {
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(SEARCH_BOX_W, theme::BAR_CTRL_H), Sense::click());
+    let p = ui.painter();
+    let r = CornerRadius::same(t.radius + 2);
+    p.rect_filled(rect, r, t.card);
+    let edge = if resp.hovered() {
+        t.accent.gamma_multiply(0.65)
+    } else {
+        t.border
+    };
+    p.rect_stroke(rect, r, Stroke::new(1.0_f32, edge), StrokeKind::Inside);
+    // the shortcut, right-aligned inside the box: the one thing a placeholder alone never says
+    let key = ui.fonts_mut(|f| {
+        f.layout_no_wrap(
+            "Ctrl+K".to_owned(),
+            FontId::new(theme::BAR_SMALL, theme::fam(theme::F_MONO)),
+            t.faint,
+        )
+    });
+    // The placeholder has to fit *beside* the shortcut, not under it: the long wording and
+    // "Ctrl+K" once met in the middle of the box and read as one word, so the label steps down to
+    // "Search" when the full sentence would collide.
+    // the placeholder is a label, not a caption: 9.5 pt read as disabled text beside the bar's 11.5
+    let font = FontId::new(theme::BAR_FONT, theme::fam(theme::F_REG));
+    let room = rect.width() - key.size().x - 30.0;
+    let mut g = ui.fonts_mut(|f| {
+        f.layout_no_wrap("Search notes and commands".to_owned(), font.clone(), t.faint)
+    });
+    if g.size().x > room {
+        g = ui.fonts_mut(|f| f.layout_no_wrap("Search".to_owned(), font, t.faint));
+    }
+    p.galley(
+        egui::Pos2::new(rect.min.x + 9.0, rect.center().y - g.size().y * 0.5),
+        g,
+        t.faint,
+    );
+    p.galley(
+        egui::Pos2::new(
+            rect.max.x - 9.0 - key.size().x,
+            rect.center().y - key.size().y * 0.5,
+        ),
+        key,
+        t.faint,
+    );
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp.on_hover_text("search pages, tags, sections and commands (Ctrl+K)")
 }
 
 fn page_meta_line(p: &Page) -> String {
@@ -9509,11 +9444,10 @@ fn tag_color(t: &Theme, tag: &str) -> Color32 {
 }
 
 fn build_palette(vault: &Vault, query: &str) -> Vec<PalItem> {
-    const COMMANDS: [&str; 16] = [
+    const COMMANDS: [&str; 15] = [
         "New page",
         "New section",
         "New notebook",
-        "Find in page",
         "Duplicate page",
         "Restore deleted…",
         "Tasks view",
