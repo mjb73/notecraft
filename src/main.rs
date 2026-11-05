@@ -12,13 +12,16 @@
 // The CLI verbs still print, because `main` attaches to the terminal that started it.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod ai;
 mod app;
 mod attach;
 mod doc;
 mod dropped;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod dragout;
+mod emoji;
 mod export;
+mod glyphs;
 mod highlight;
 mod imgcache;
 mod keylayout;
@@ -313,6 +316,37 @@ fn main() -> eframe::Result<()> {
             println!("the .md files were left in place as the backup");
             Ok(())
         }
+        // Rebuild one page's `.note` document from its markdown. The editor *reads* the document and
+        // only parses the markdown when there is none (`open_page`), so anything that writes a page's
+        // `.md` from outside the app — a script, or the phone front end — leaves the document stale,
+        // and the page then opens with the old text and writes it straight back on the next save.
+        // This runs the app's own parser, so the phone does not have to know the block model.
+        "doc-sync" => {
+            let Some(p) = args.get(1) else {
+                eprintln!("usage: notecraft doc-sync <page.md>");
+                std::process::exit(2);
+            };
+            let path = PathBuf::from(p);
+            if !path.is_file() {
+                eprintln!("notecraft: no such page: {}", path.display());
+                std::process::exit(1);
+            }
+            if let Err(e) = vault::page_is_text(&path) {
+                eprintln!("notecraft: {e}");
+                std::process::exit(1);
+            }
+            let (_title, body, _created, _order, _updated) = vault::read_page_file(&path);
+            let mut d = doc::from_markdown(&body);
+            d.ensure_block();
+            match doc::save(&path, &d) {
+                Ok(()) => println!("{}: {} block(s)", path.display(), d.blocks.len()),
+                Err(e) => {
+                    eprintln!("notecraft: cannot write the document: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Ok(())
+        }
         "path" => {
             println!("{}", root.display());
             Ok(())
@@ -329,6 +363,7 @@ fn main() -> eframe::Result<()> {
                  notecraft tasks      list open todos\n\
                  notecraft search Q   search pages\n\
                  notecraft path       print vault root ({})\n\
+                 notecraft doc-sync P  rebuild page P's .note document from its markdown\n\
                  notecraft --version  print the version\n\
                  --software           render on the CPU (no GPU needed)\n\
                  --x11 / --wayland    choose the windowing backend (Linux only)",

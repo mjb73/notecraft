@@ -67,16 +67,12 @@ pub fn snippet_for_url(page_path: &Path, url: &str) -> io::Result<String> {
     std::fs::create_dir_all(&dir)?;
     let name = free_name(&dir, &name);
     let target = dir.join(&name);
-    // In-process (rustls), so a Windows or macOS install needs no `wget` on PATH.
-    let size = crate::platform::download_to_file(url, &target).map_err(|e| {
-        let _ = std::fs::remove_file(&target);
-        io::Error::other(format!("could not download {url}: {e}"))
-    })?;
-    if size > 0 {
-        Ok(format!("![{name}]({ASSETS}/{name})"))
-    } else {
-        let _ = std::fs::remove_file(&target);
-        Err(io::Error::other(format!("could not download {url}")))
+    match crate::platform::download_to_file(url, &target) {
+        Ok(_) => Ok(format!("![{name}]({ASSETS}/{name})")),
+        Err(e) => {
+            let _ = std::fs::remove_file(&target);
+            Err(io::Error::other(format!("could not download {url}: {e}")))
+        }
     }
 }
 
@@ -225,6 +221,21 @@ pub fn snippet_for_dropped_text(page_path: &Path, src: &Path) -> io::Result<Stri
 /// Copy a file into the page's `assets/` (images) or link it in place, and
 /// return the markdown to insert.
 pub fn snippet_for_file(page_path: &Path, src: &Path) -> io::Result<String> {
+    let out = snippet_for_file_inner(page_path, src);
+    // TEMPORARY instrumentation (remove after the drop is fixed): which branch ran, and what it made.
+    crate::app::dnd_log(&format!(
+        "attach: file={} page={} -> {}",
+        src.display(),
+        page_path.display(),
+        match &out {
+            Ok(s) => format!("ok {:?}", s.chars().take(120).collect::<String>()),
+            Err(e) => format!("err {e}"),
+        }
+    ));
+    out
+}
+
+fn snippet_for_file_inner(page_path: &Path, src: &Path) -> io::Result<String> {
     let mut name = src
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
@@ -311,15 +322,15 @@ pub fn snippet_for_snip(page_path: &Path, img: &RgbaImage) -> io::Result<String>
     Ok(format!("![{name}]({reference})"))
 }
 
-/// Ask the user for files, with the platform's own chooser (`platform::pick_files`).
-///
-/// The chooser is native: the XDG desktop portal on Linux, `IFileOpenDialog` on Windows,
-/// `NSOpenPanel` on macOS. An empty list means cancelled.
+/// Ask the user for files, with the platform's own chooser (`platform::pick_files`: the XDG
+/// desktop portal on Linux, `IFileOpenDialog` on Windows, `NSOpenPanel` on macOS). An empty list
+/// means cancelled or no chooser could be shown.
 pub fn choose_files(images_only: bool) -> Vec<PathBuf> {
     crate::platform::pick_files(images_only)
 }
 
-/// Ask where to save a file: the export destination. `None` means the user cancelled.
+/// Ask where to save a file (`platform::pick_save`, so the native save dialog). `filter` is the
+/// app's own `"*.pdf|PDF files"` form; `None` means the user cancelled.
 pub fn choose_save(default_path: &Path, filter: &str) -> Option<PathBuf> {
     crate::platform::pick_save(default_path, filter)
 }
@@ -521,10 +532,10 @@ mod tests {
 
     #[test]
     fn uri_lists_and_plain_paths_parse() {
-        let text = "file:///home/mjbayes/Pictures/holiday%20photo.png\r\n/abs/other.jpg\n\nnot-a-path\n";
+        let text = "file:///home/user/Pictures/holiday%20photo.png\r\n/abs/other.jpg\n\nnot-a-path\n";
         let paths = paths_from_text(text);
         assert_eq!(paths.len(), 2);
-        assert_eq!(paths[0], PathBuf::from("/home/mjbayes/Pictures/holiday photo.png"));
+        assert_eq!(paths[0], PathBuf::from("/home/user/Pictures/holiday photo.png"));
         assert_eq!(paths[1], PathBuf::from("/abs/other.jpg"));
         assert!(!is_image(Path::new("/tmp/x.txt")));
         assert!(is_image(Path::new("/tmp/X.PNG")));
@@ -583,3 +594,4 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+

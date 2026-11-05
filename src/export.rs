@@ -2,9 +2,8 @@
 //!
 //! HTML is the format that reproduces what the document actually models, so it is the primary one: one
 //! self-contained file, the pictures inlined as data URIs, and CSS that follows the current theme (with a
-//! print block that forces a light page). It is also what the PDF is made from — WeasyPrint,
-//! wkhtmltopdf or a Chromium-family browser in headless mode; when none is installed the export
-//! says so instead of writing nothing.
+//! print block that forces a light page). It is also what the PDF is made from — `weasyprint`, which has to
+//! be installed (`python-weasyprint`); when it is missing the export says so instead of writing nothing.
 //! Plain text exists for grep, mail bodies and pasting.
 
 use crate::doc::{self, Kind};
@@ -114,6 +113,33 @@ pub fn html(d: &doc::Doc, title: &str, page: &Path, t: &Theme) -> String {
             }
             Kind::Rule => {
                 body.push_str("<hr>\n");
+                i += 1;
+            }
+            Kind::Table => {
+                let t = d.blocks[i].table.clone().unwrap_or_default();
+                body.push_str("<table>\n");
+                for (rn, row) in t.rows.iter().enumerate() {
+                    // the first row is the header, and it is a header in the export too
+                    if rn == 0 {
+                        body.push_str("<thead>\n<tr>");
+                    } else if rn == 1 {
+                        body.push_str("<tbody>\n<tr>");
+                    } else {
+                        body.push_str("<tr>");
+                    }
+                    let cell = if rn == 0 { "th" } else { "td" };
+                    for c in row {
+                        body.push_str(&format!("<{cell}>{}</{cell}>", escape(c.trim())));
+                    }
+                    body.push_str("</tr>\n");
+                    if rn == 0 {
+                        body.push_str("</thead>\n");
+                    }
+                }
+                if t.rows.len() > 1 {
+                    body.push_str("</tbody>\n");
+                }
+                body.push_str("</table>\n");
                 i += 1;
             }
             Kind::Heading(n) => {
@@ -412,6 +438,27 @@ pub fn plain(d: &doc::Doc, title: &str) -> String {
                 out.push('\n');
             }
             Kind::Rule => out.push_str("---\n"),
+            Kind::Table => {
+                // the same pipe table the file holds, so a copy of the export reads as a table
+                let t = b.table.clone().unwrap_or_default();
+                let cols = t.cols().max(1);
+                for (rn, row) in t.rows.iter().enumerate() {
+                    out.push('|');
+                    for c in 0..cols {
+                        out.push(' ');
+                        out.push_str(row.get(c).map(|s| s.as_str()).unwrap_or(""));
+                        out.push_str(" |");
+                    }
+                    out.push('\n');
+                    if rn == 0 {
+                        out.push('|');
+                        for _ in 0..cols {
+                            out.push_str(" --- |");
+                        }
+                        out.push('\n');
+                    }
+                }
+            }
             Kind::Image => {
                 out.push_str("[picture: ");
                 if text.trim().is_empty() {
@@ -434,8 +481,8 @@ pub fn plain(d: &doc::Doc, title: &str) -> String {
 
 // ---------------------------------------------------------------- pdf
 
-/// Make a PDF from the HTML. The HTML is written beside the output so nothing has to resolve a
-/// path, and removed again whatever happens.
+/// Make a PDF from the HTML with `weasyprint`. The HTML is written beside the output so nothing has
+/// to resolve a path, and removed again whatever happens.
 ///
 /// Nothing here can prove the page came out right — the renderer is a separate program — so a
 /// missing tool, a failed run and an empty file are all errors, and a half-written output is deleted
@@ -447,7 +494,7 @@ pub fn html_to_pdf(html: &str, out: &Path, work_dir: &Path) -> Result<(), String
     ));
     std::fs::write(&tmp, html).map_err(|e| format!("cannot write the temporary HTML: {e}"))?;
 
-    let rendered = render_html(&tmp, out);
+    let rendered = render_with_weasyprint(&tmp, out);
     let _ = std::fs::remove_file(&tmp);
     match rendered {
         Ok(()) => Ok(()),
@@ -459,185 +506,63 @@ pub fn html_to_pdf(html: &str, out: &Path, work_dir: &Path) -> Result<(), String
     }
 }
 
-/// One way of turning the export's HTML into a PDF: the program, the arguments it needs for
-/// `in` and `out`, and the sentence shown when it is not installed.
-struct PdfRenderer {
-    label: &'static str,
-    /// Every place the program may live. The first entry is the `PATH` name.
-    bins: Vec<PathBuf>,
-    args: fn(&Path, &Path) -> Vec<std::ffi::OsString>,
-}
-
-/// Run the first available renderer over the temporary HTML.
+/// Run `weasyprint` on the temporary HTML, trying the absolute locations as well as `PATH`.
 ///
-/// WeasyPrint first (its output honours the export's page CSS most faithfully), then wkhtmltopdf,
-/// then a Chromium-family browser in headless mode — which is the only one that exists on Windows
-/// out of the box (`msedge`), and is a common install on macOS and Linux. Only spawning is retried:
-/// once a renderer actually runs, its verdict is the answer.
-fn render_html(tmp: &Path, out: &Path) -> Result<(), String> {
-    let mut tried: Vec<String> = Vec::new();
-    for r in pdf_renderers() {
-        for bin in &r.bins {
-            let args = (r.args)(tmp, out);
-            let res = std::process::Command::new(bin)
-                .args(&args)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::piped())
-                .output();
-            let output = match res {
-                Ok(o) => o,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    tried.push(format!("{}: not installed", bin.display()));
-                    continue;
-                }
-                Err(e) => return Err(format!("cannot run {}: {e}", r.label)),
-            };
-            if output.status.success() && out.is_file() && file_has_bytes(out) {
-                return Ok(());
+/// A desktop session's `PATH` is not always a shell's, and a tool that works in a terminal but not
+/// from the launcher is a failure mode this app has hit before. Only spawning is retried: once the
+/// renderer actually runs, its verdict is the answer.
+fn render_with_weasyprint(tmp: &Path, out: &Path) -> Result<(), String> {
+    let mut spawn_failed: Vec<String> = Vec::new();
+    for bin in weasyprint_candidates() {
+        let res = std::process::Command::new(&bin)
+            .arg(tmp)
+            .arg(out)
+            .stdin(std::process::Stdio::null())
+            .output();
+        let output = match res {
+            Ok(o) => o,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                spawn_failed.push(format!("{}: not found", bin.display()));
+                continue;
             }
-            // A renderer that ran and failed is a real failure: report it rather than silently
-            // trying the next one, which would hide a broken page behind a different engine's page.
-            let err = String::from_utf8_lossy(&output.stderr);
-            let msg = err
-                .lines()
-                .rev()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or("no message");
-            return Err(format!("{} failed: {msg}", r.label));
+            Err(e) => return Err(format!("cannot run weasyprint: {e}")),
+        };
+        if output.status.success() && out.is_file() {
+            return Ok(());
         }
+        let err = String::from_utf8_lossy(&output.stderr);
+        let msg = err
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("no message");
+        return Err(format!("weasyprint failed: {msg}"));
     }
     Err(format!(
-        "no HTML-to-PDF renderer found ({}) — install WeasyPrint (python-weasyprint) or \
-         wkhtmltopdf, or use the HTML export, which is the same page",
-        if tried.is_empty() { "none on PATH".to_string() } else { tried.join("; ") }
+        "weasyprint is not installed ({}) — install python-weasyprint, or use the HTML export, \
+         which is the same page",
+        spawn_failed.join(", ")
     ))
 }
 
-fn file_has_bytes(p: &Path) -> bool {
-    std::fs::metadata(p).map(|m| m.len() > 512).unwrap_or(false)
-}
-
-/// The renderers to try, in order, with the paths each may live at on this platform.
-fn pdf_renderers() -> Vec<PdfRenderer> {
-    let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
-    let mut weasy = Vec::new();
-    if let Some(p) = env("NOTECRAFT_WEASYPRINT") {
-        weasy.push(p);
+/// Where to look for `weasyprint`: `$NOTECRAFT_WEASYPRINT`, then `PATH`, then the usual places.
+fn weasyprint_candidates() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(p) = std::env::var_os("NOTECRAFT_WEASYPRINT") {
+        v.push(PathBuf::from(p));
     }
-    weasy.extend(path_names(&[
-        "weasyprint",
+    v.push(PathBuf::from("weasyprint"));
+    for p in [
         "/usr/bin/weasyprint",
         "/usr/sbin/weasyprint",
         "/usr/local/bin/weasyprint",
-        "/opt/homebrew/bin/weasyprint",
-    ]));
-
-    let mut wk = Vec::new();
-    if let Some(p) = env("NOTECRAFT_WKHTMLTOPDF") {
-        wk.push(p);
-    }
-    wk.extend(path_names(&[
-        "wkhtmltopdf",
-        "/usr/bin/wkhtmltopdf",
-        "/usr/local/bin/wkhtmltopdf",
-        "/opt/homebrew/bin/wkhtmltopdf",
-        "C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe",
-    ]));
-
-    let mut chrome = Vec::new();
-    if let Some(p) = env("NOTECRAFT_CHROME") {
-        chrome.push(p);
-    }
-    chrome.extend(path_names(&[
-        "google-chrome",
-        "google-chrome-stable",
-        "chromium",
-        "chromium-browser",
-        "microsoft-edge",
-        "msedge",
-        "brave-browser",
-        "vivaldi",
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-    ]));
-
-    vec![
-        PdfRenderer {
-            label: "weasyprint",
-            bins: weasy,
-            args: |input, output| {
-                vec![input.as_os_str().to_owned(), output.as_os_str().to_owned()]
-            },
-        },
-        PdfRenderer {
-            label: "wkhtmltopdf",
-            bins: wk,
-            args: |input, output| {
-                vec![
-                    "--enable-local-file-access".into(),
-                    "--quiet".into(),
-                    input.as_os_str().to_owned(),
-                    output.as_os_str().to_owned(),
-                ]
-            },
-        },
-        PdfRenderer {
-            label: "chrome (headless)",
-            bins: chrome,
-            args: |input, output| {
-                vec![
-                    "--headless=new".into(),
-                    "--disable-gpu".into(),
-                    "--no-pdf-header-footer".into(),
-                    // give the page a moment to lay out its fonts and inline images
-                    "--virtual-time-budget=3000".into(),
-                    format!("--print-to-pdf={}", output.display()).into(),
-                    file_url(input).into(),
-                ]
-            },
-        },
-    ]
-}
-
-/// `PATH` names as-is, then the absolute paths that actually exist (a desktop session's `PATH` is
-/// not always a shell's, and a tool that works in a terminal but not from the launcher is a failure
-/// mode this app has hit before).
-fn path_names(names: &[&str]) -> Vec<PathBuf> {
-    let mut v = Vec::new();
-    for n in names {
-        let p = PathBuf::from(n);
-        if p.is_absolute() {
-            if p.is_file() {
-                v.push(p);
-            }
-        } else {
+    ] {
+        let p = PathBuf::from(p);
+        if p.is_file() {
             v.push(p);
         }
     }
     v
-}
-
-/// A `file://` URL the renderers accept: Chrome needs the absolute path with the platform's own
-/// separators converted and the spaces escaped.
-fn file_url(p: &Path) -> String {
-    let s = p.display().to_string();
-    let mut out = String::from("file://");
-    #[cfg(windows)]
-    {
-        out.push('/');
-        out.push_str(&s.replace('\\', "/"));
-    }
-    #[cfg(not(windows))]
-    {
-        out.push_str(&s);
-    }
-    out.replace(' ', "%20")
 }
 
 /// Cut an encoded picture down to `crop` and re-encode it as PNG, in memory.
@@ -674,14 +599,16 @@ mod tests {
 
     #[test]
     fn the_pdf_export_writes_a_real_pdf() {
-        // This is the one export that shells out, so nothing in the Rust type system proves it
-        // worked: the page could come back empty, or not at all. Skipped when the machine has no
-        // renderer, so `cargo test` stays honest on a box without one.
-        let have_tool = pdf_renderers()
-            .iter()
-            .any(|r| r.bins.iter().any(|b| !b.is_absolute() || b.is_file()));
+        // This is the one export that shells out (`weasyprint`), so nothing in the Rust type system
+        // proves it worked: the page could come back empty, or not at all. Skipped when the tool is
+        // not installed, so `cargo test` stays honest on a box without it.
+        let have_tool = std::process::Command::new("weasyprint")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
         if !have_tool {
-            eprintln!("no HTML-to-PDF renderer installed — PDF export test skipped");
+            eprintln!("weasyprint not installed — PDF export test skipped");
             return;
         }
         let t = theme::themes()[0];
@@ -811,7 +738,6 @@ mod tests {
         }
     }
 
-    #[test]
     /// The export bakes the crop into the copy it embeds: the kept half of a 4x2 picture is a 2x2 PNG,
     /// and bytes that are not an image fall back to the original rather than to an empty figure.
     #[test]
@@ -855,6 +781,7 @@ mod tests {
         assert!(crop_bytes(b"not an image", crate::doc::Crop::FULL).is_none());
     }
 
+    #[test]
     fn text_is_escaped_and_properties_become_elements() {
         let t = theme::themes()[0];
         let page = std::path::PathBuf::from("/tmp/x/P.md");

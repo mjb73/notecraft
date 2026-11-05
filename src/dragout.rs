@@ -507,6 +507,18 @@ fn pointer_state(conn: &RustConnection, root: Window) -> Option<(Option<Window>,
     Some((Some(win), held))
 }
 
+/// The pointer, in pixels **relative to `window`**, for the drop target.
+///
+/// An XDND drag sends `XdndPosition` to the target but no motion events to the application, so egui's
+/// own pointer position is stale for the whole drag: asking the server is the only way to know where a
+/// dropped file was actually let go. `query_pointer` reports the coordinates relative to the window it
+/// is asked about, which is the space egui draws in.
+pub fn pointer_in(window: u32) -> Option<(f32, f32)> {
+    let (conn, _screen) = x11rb::connect(None).ok()?;
+    let q = conn.query_pointer(window).ok()?.reply().ok()?;
+    q.same_screen.then_some((f32::from(q.win_x), f32::from(q.win_y)))
+}
+
 fn pointer_xy(conn: &RustConnection, root: Window) -> Option<(i16, i16)> {
     let q = conn.query_pointer(root).ok()?.reply().ok()?;
     Some((q.root_x, q.root_y))

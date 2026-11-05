@@ -1,0 +1,3464 @@
+1F440|eyes||smileys
+1F441|eye||smileys
+1F442|ear||smileys
+1F443|nose||smileys
+1F444|mouth||smileys
+1F445|tongue||smileys
+1F446|white up pointing backhand index||smileys
+1F447|white down pointing backhand index||smileys
+1F448|white left pointing backhand index||smileys
+1F449|white right pointing backhand index||smileys
+1F44A|fisted hand sign||smileys
+1F44B|waving hand sign||smileys
+1F44C|ok hand sign||smileys
+1F44D|thumbs up sign||smileys
+1F44E|thumbs down sign||smileys
+1F44F|clapping hands sign||smileys
+1F450|open hands sign||smileys
+1F451|crown||smileys
+1F452|womans hat||smileys
+1F453|eyeglasses||smileys
+1F454|necktie||smileys
+1F455|t shirt||smileys
+1F456|jeans||smileys
+1F457|dress||smileys
+1F458|kimono||smileys
+1F459|bikini||smileys
+1F45A|womans clothes||smileys
+1F45B|purse||smileys
+1F45C|handbag||smileys
+1F45D|pouch||smileys
+1F45E|mans shoe||smileys
+1F45F|athletic shoe||smileys
+1F464|bust in silhouette||smileys
+1F465|busts in silhouette||smileys
+1F466|boy||smileys
+1F467|girl||smileys
+1F468|man||smileys
+1F469|woman||smileys
+1F46A|family||smileys
+1F46B|man and woman holding hands||smileys
+1F46C|two men holding hands||smileys
+1F46D|two women holding hands||smileys
+1F46E|police officer||smileys
+1F46F|woman with bunny ears||smileys
+1F470|bride with veil||smileys
+1F471|person with blond hair||smileys
+1F472|man with gua pi mao||smileys
+1F473|man with turban||smileys
+1F474|older man||smileys
+1F475|older woman||smileys
+1F476|baby||smileys
+1F477|construction worker||smileys
+1F478|princess||smileys
+1F479|japanese ogre||smileys
+1F47A|japanese goblin||smileys
+1F47B|ghost||smileys
+1F47C|baby angel||smileys
+1F47D|extraterrestrial alien||smileys
+1F47E|alien monster||smileys
+1F47F|imp||smileys
+1F480|skull||smileys
+1F481|information desk person||smileys
+1F482|guardsman||smileys
+1F483|dancer||smileys
+1F484|lipstick||smileys
+1F485|nail polish||smileys
+1F486|face massage||smileys
+1F487|haircut||smileys
+1F574|man in business suit levitating||smileys
+1F575|sleuth or spy||smileys
+1F576|dark sunglasses||smileys
+1F577|spider||smileys
+1F578|spider web||smileys
+1F579|joystick||smileys
+1F57A|man dancing||smileys
+1F590|raised hand with fingers splayed||smileys
+1F591|reversed raised hand with fingers splayed||smileys
+1F592|reversed thumbs up sign||smileys
+1F593|reversed thumbs down sign||smileys
+1F594|reversed victory hand||smileys
+1F595|reversed hand with middle finger extended||smileys
+1F596|raised hand with part between middle and ring fingers||smileys
+1F600|grinning face||smileys
+1F601|grinning face with smiling eyes||smileys
+1F602|face with tears of joy||smileys
+1F603|smiling face with open mouth||smileys
+1F604|smiling face with open mouth and smiling eyes||smileys
+1F605|smiling face with open mouth and cold sweat||smileys
+1F606|smiling face with open mouth and tightly closed eyes||smileys
+1F607|smiling face with halo||smileys
+1F608|smiling face with horns||smileys
+1F609|winking face||smileys
+1F60A|smiling face with smiling eyes||smileys
+1F60B|face savouring delicious food||smileys
+1F60C|relieved face||smileys
+1F60D|smiling face with heart shaped eyes||smileys
+1F60E|smiling face with sunglasses||smileys
+1F60F|smirking face||smileys
+1F610|neutral face||smileys
+1F611|expressionless face||smileys
+1F612|unamused face||smileys
+1F613|face with cold sweat||smileys
+1F614|pensive face||smileys
+1F615|confused face||smileys
+1F616|confounded face||smileys
+1F617|kissing face||smileys
+1F618|face throwing a kiss||smileys
+1F619|kissing face with smiling eyes||smileys
+1F61A|kissing face with closed eyes||smileys
+1F61B|face with stuck out tongue||smileys
+1F61C|face with stuck out tongue and winking eye||smileys
+1F61D|face with stuck out tongue and tightly closed eyes||smileys
+1F61E|disappointed face||smileys
+1F61F|worried face||smileys
+1F620|angry face||smileys
+1F621|pouting face||smileys
+1F622|crying face||smileys
+1F623|persevering face||smileys
+1F624|face with look of triumph||smileys
+1F625|disappointed but relieved face||smileys
+1F626|frowning face with open mouth||smileys
+1F627|anguished face||smileys
+1F628|fearful face||smileys
+1F629|weary face||smileys
+1F62A|sleepy face||smileys
+1F62B|tired face||smileys
+1F62C|grimacing face||smileys
+1F62D|loudly crying face||smileys
+1F62E|face with open mouth||smileys
+1F62F|hushed face||smileys
+1F630|face with open mouth and cold sweat||smileys
+1F631|face screaming in fear||smileys
+1F632|astonished face||smileys
+1F633|flushed face||smileys
+1F634|sleeping face||smileys
+1F635|dizzy face||smileys
+1F636|face without mouth||smileys
+1F637|face with medical mask||smileys
+1F638|grinning cat face with smiling eyes||smileys
+1F639|cat face with tears of joy||smileys
+1F63A|smiling cat face with open mouth||smileys
+1F63B|smiling cat face with heart shaped eyes||smileys
+1F63C|cat face with wry smile||smileys
+1F63D|kissing cat face with closed eyes||smileys
+1F63E|pouting cat face||smileys
+1F63F|crying cat face||smileys
+1F640|weary cat face||smileys
+1F641|slightly frowning face||smileys
+1F642|slightly smiling face||smileys
+1F643|upside down face||smileys
+1F644|face with rolling eyes||smileys
+1F645|face with no good gesture||smileys
+1F646|face with ok gesture||smileys
+1F647|person bowing deeply||smileys
+1F648|see no evil monkey||smileys
+1F649|hear no evil monkey||smileys
+1F64A|speak no evil monkey||smileys
+1F64B|happy person raising one hand||smileys
+1F64C|person raising both hands in celebration||smileys
+1F64D|person frowning||smileys
+1F64E|person with pouting face||smileys
+1F64F|person with folded hands||smileys
+1F910|zipper mouth face||smileys
+1F911|money mouth face||smileys
+1F912|face with thermometer||smileys
+1F913|nerd face||smileys
+1F914|thinking face||smileys
+1F915|face with head bandage||smileys
+1F916|robot face||smileys
+1F917|hugging face||smileys
+1F918|sign of the horns||smileys
+1F919|call me hand||smileys
+1F91A|raised back of hand||smileys
+1F91B|left facing fist||smileys
+1F91C|right facing fist||smileys
+1F91D|handshake||smileys
+1F91E|hand with index and middle fingers crossed||smileys
+1F91F|i love you hand sign||smileys
+1F920|face with cowboy hat||smileys
+1F921|clown face||smileys
+1F922|nauseated face||smileys
+1F923|rolling on the floor laughing||smileys
+1F924|drooling face||smileys
+1F925|lying face||smileys
+1F926|face palm||smileys
+1F927|sneezing face||smileys
+1F928|face with one eyebrow raised||smileys
+1F929|grinning face with star eyes||smileys
+1F92A|grinning face with one large and one small eye||smileys
+1F92B|face with finger covering closed lips||smileys
+1F92C|serious face with symbols covering mouth||smileys
+1F92D|smiling face with smiling eyes and hand covering mouth||smileys
+1F92E|face with open mouth vomiting||smileys
+1F92F|shocked face with exploding head||smileys
+1F930|pregnant woman||smileys
+1F931|breast feeding||smileys
+1F932|palms up together||smileys
+1F933|selfie||smileys
+1F934|prince||smileys
+1F935|man in tuxedo||smileys
+1F936|mother christmas||smileys
+1F937|shrug||smileys
+1F938|person doing cartwheel||smileys
+1F939|juggling||smileys
+1F93A|fencer||smileys
+1F93B|modern pentathlon||smileys
+1F93C|wrestlers||smileys
+1F93D|water polo||smileys
+1F93E|handball||smileys
+1F93F|diving mask||smileys
+1F9B0|emoji component red hair||smileys
+1F9B1|emoji component curly hair||smileys
+1F9B2|emoji component bald||smileys
+1F9B3|emoji component white hair||smileys
+1F9B4|bone||smileys
+1F9B5|leg||smileys
+1F9B6|foot||smileys
+1F9B7|tooth||smileys
+1F9B8|superhero||smileys
+1F9B9|supervillain||smileys
+1F9CD|standing person||smileys
+1F9CE|kneeling person||smileys
+1F9CF|deaf person||smileys
+1F9D1|adult||smileys
+1F9D2|child||smileys
+1F9D3|older adult||smileys
+1F9D4|bearded person||smileys
+1F9D5|person with headscarf||smileys
+1F9D6|person in steamy room||smileys
+1F9D7|person climbing||smileys
+1F9D8|person in lotus position||smileys
+1F9D9|mage||smileys
+1F9DA|fairy||smileys
+1F9DB|vampire||smileys
+1F9DC|merperson||smileys
+1F9DD|elf||smileys
+1FAE0|melting face||smileys
+1FAE1|saluting face||smileys
+1FAE2|face with open eyes and hand over mouth||smileys
+1FAE3|face with peeking eye||smileys
+1FAE4|face with diagonal mouth||smileys
+1FAE5|dotted line face||smileys
+1FAE6|biting lip||smileys
+1FAE7|bubbles||smileys
+1FAE8|shaking face||smileys
+1F300|cyclone||nature
+1F301|foggy||nature
+1F302|closed umbrella||nature
+1F303|night with stars||nature
+1F304|sunrise over mountains||nature
+1F305|sunrise||nature
+1F306|cityscape at dusk||nature
+1F307|sunset over buildings||nature
+1F308|rainbow||nature
+1F309|bridge at night||nature
+1F30A|water wave||nature
+1F30B|volcano||nature
+1F30C|milky way||nature
+1F30D|earth globe europe africa||nature
+1F30E|earth globe americas||nature
+1F30F|earth globe asia australia||nature
+1F310|globe with meridians||nature
+1F311|new moon symbol||nature
+1F312|waxing crescent moon symbol||nature
+1F313|first quarter moon symbol||nature
+1F314|waxing gibbous moon symbol||nature
+1F315|full moon symbol||nature
+1F316|waning gibbous moon symbol||nature
+1F317|last quarter moon symbol||nature
+1F318|waning crescent moon symbol||nature
+1F319|crescent moon||nature
+1F31A|new moon with face||nature
+1F31B|first quarter moon with face||nature
+1F31C|last quarter moon with face||nature
+1F31D|full moon with face||nature
+1F31E|sun with face||nature
+1F31F|glowing star||nature
+1F320|shooting star||nature
+1F321|thermometer||nature
+1F322|black droplet||nature
+1F323|white sun||nature
+1F324|white sun with small cloud||nature
+1F325|white sun behind cloud||nature
+1F326|white sun behind cloud with rain||nature
+1F327|cloud with rain||nature
+1F328|cloud with snow||nature
+1F329|cloud with lightning||nature
+1F32A|cloud with tornado||nature
+1F32B|fog||nature
+1F32C|wind blowing face||nature
+1F330|chestnut||nature
+1F331|seedling||nature
+1F332|evergreen tree||nature
+1F333|deciduous tree||nature
+1F334|palm tree||nature
+1F335|cactus||nature
+1F336|hot pepper||nature
+1F337|tulip||nature
+1F338|cherry blossom||nature
+1F339|rose||nature
+1F33A|hibiscus||nature
+1F33B|sunflower||nature
+1F33C|blossom||nature
+1F33D|ear of maize||nature
+1F33E|ear of rice||nature
+1F33F|herb||nature
+1F340|four leaf clover||nature
+1F341|maple leaf||nature
+1F342|fallen leaf||nature
+1F343|leaf fluttering in wind||nature
+1F344|mushroom||nature
+1F400|rat||nature
+1F401|mouse||nature
+1F402|ox||nature
+1F403|water buffalo||nature
+1F404|cow||nature
+1F405|tiger||nature
+1F406|leopard||nature
+1F407|rabbit||nature
+1F408|cat||nature
+1F409|dragon||nature
+1F40A|crocodile||nature
+1F40B|whale||nature
+1F40C|snail||nature
+1F40D|snake||nature
+1F40E|horse||nature
+1F40F|ram||nature
+1F410|goat||nature
+1F411|sheep||nature
+1F412|monkey||nature
+1F413|rooster||nature
+1F414|chicken||nature
+1F415|dog||nature
+1F416|pig||nature
+1F417|boar||nature
+1F418|elephant||nature
+1F419|octopus||nature
+1F41A|spiral shell||nature
+1F41B|bug||nature
+1F41C|ant||nature
+1F41D|honeybee||nature
+1F41E|lady beetle||nature
+1F41F|fish||nature
+1F420|tropical fish||nature
+1F421|blowfish||nature
+1F422|turtle||nature
+1F423|hatching chick||nature
+1F424|baby chick||nature
+1F425|front facing baby chick||nature
+1F426|bird||nature
+1F427|penguin||nature
+1F428|koala||nature
+1F429|poodle||nature
+1F42A|dromedary camel||nature
+1F42B|bactrian camel||nature
+1F42C|dolphin||nature
+1F42D|mouse face||nature
+1F42E|cow face||nature
+1F42F|tiger face||nature
+1F430|rabbit face||nature
+1F431|cat face||nature
+1F432|dragon face||nature
+1F433|spouting whale||nature
+1F434|horse face||nature
+1F435|monkey face||nature
+1F436|dog face||nature
+1F437|pig face||nature
+1F438|frog face||nature
+1F439|hamster face||nature
+1F43A|wolf face||nature
+1F43B|bear face||nature
+1F43C|panda face||nature
+1F43D|pig nose||nature
+1F43E|paw prints||nature
+1F43F|chipmunk||nature
+1F54A|dove of peace||nature
+1F54B|kaaba||nature
+1F54C|mosque||nature
+1F54D|synagogue||nature
+1F980|crab||nature
+1F981|lion face||nature
+1F982|scorpion||nature
+1F983|turkey||nature
+1F984|unicorn face||nature
+1F985|eagle||nature
+1F986|duck||nature
+1F987|bat||nature
+1F988|shark||nature
+1F989|owl||nature
+1F98A|fox face||nature
+1F98B|butterfly||nature
+1F98C|deer||nature
+1F98D|gorilla||nature
+1F98E|lizard||nature
+1F98F|rhinoceros||nature
+1F990|shrimp||nature
+1F991|squid||nature
+1F992|giraffe face||nature
+1F993|zebra face||nature
+1F994|hedgehog||nature
+1F995|sauropod||nature
+1F996|t rex||nature
+1F997|cricket||nature
+1F998|kangaroo||nature
+1F999|llama||nature
+1F99A|peacock||nature
+1F99B|hippopotamus||nature
+1F99C|parrot||nature
+1F99D|raccoon||nature
+1F99E|lobster||nature
+1F99F|mosquito||nature
+1F9A0|microbe||nature
+1F9A1|badger||nature
+1F9A2|swan||nature
+1F9A3|mammoth||nature
+1F9A4|dodo||nature
+1F9A5|sloth||nature
+1F9A6|otter||nature
+1F9A7|orangutan||nature
+1F9A8|skunk||nature
+1F9A9|flamingo||nature
+1F9AA|oyster||nature
+1F9AB|beaver||nature
+1F9AC|bison||nature
+1F9AD|seal||nature
+1F9AE|guide dog||nature
+1F32D|hot dog||food
+1F32E|taco||food
+1F32F|burrito||food
+1F345|tomato||food
+1F346|aubergine||food
+1F347|grapes||food
+1F348|melon||food
+1F349|watermelon||food
+1F34A|tangerine||food
+1F34B|lemon||food
+1F34C|banana||food
+1F34D|pineapple||food
+1F34E|red apple||food
+1F34F|green apple||food
+1F350|pear||food
+1F351|peach||food
+1F352|cherries||food
+1F353|strawberry||food
+1F354|hamburger||food
+1F355|slice of pizza||food
+1F356|meat on bone||food
+1F357|poultry leg||food
+1F358|rice cracker||food
+1F359|rice ball||food
+1F35A|cooked rice||food
+1F35B|curry and rice||food
+1F35C|steaming bowl||food
+1F35D|spaghetti||food
+1F35E|bread||food
+1F35F|french fries||food
+1F360|roasted sweet potato||food
+1F361|dango||food
+1F362|oden||food
+1F363|sushi||food
+1F364|fried shrimp||food
+1F365|fish cake with swirl design||food
+1F366|soft ice cream||food
+1F367|shaved ice||food
+1F368|ice cream||food
+1F369|doughnut||food
+1F36A|cookie||food
+1F36B|chocolate bar||food
+1F36C|candy||food
+1F36D|lollipop||food
+1F36E|custard||food
+1F36F|honey pot||food
+1F370|shortcake||food
+1F371|bento box||food
+1F372|pot of food||food
+1F373|cooking||food
+1F374|fork and knife||food
+1F375|teacup without handle||food
+1F376|sake bottle and cup||food
+1F377|wine glass||food
+1F378|cocktail glass||food
+1F379|tropical drink||food
+1F37A|beer mug||food
+1F37B|clinking beer mugs||food
+1F37C|baby bottle||food
+1F37D|fork and knife with plate||food
+1F37E|bottle with popping cork||food
+1F37F|popcorn||food
+1F950|croissant||food
+1F951|avocado||food
+1F952|cucumber||food
+1F953|bacon||food
+1F954|potato||food
+1F955|carrot||food
+1F956|baguette bread||food
+1F957|green salad||food
+1F958|shallow pan of food||food
+1F959|stuffed flatbread||food
+1F95A|egg||food
+1F95B|glass of milk||food
+1F95C|peanuts||food
+1F95D|kiwifruit||food
+1F95E|pancakes||food
+1F95F|dumpling||food
+1F960|fortune cookie||food
+1F961|takeout box||food
+1F962|chopsticks||food
+1F963|bowl with spoon||food
+1F964|cup with straw||food
+1F965|coconut||food
+1F966|broccoli||food
+1F967|pie||food
+1F968|pretzel||food
+1F969|cut of meat||food
+1F96A|sandwich||food
+1F96B|canned food||food
+1F96C|leafy green||food
+1F96D|mango||food
+1F96E|moon cake||food
+1F96F|bagel||food
+1F9C0|cheese wedge||food
+1F9C1|cupcake||food
+1F9C2|salt shaker||food
+1F9C3|beverage box||food
+1F9C4|garlic||food
+1F9C5|onion||food
+1F9C6|falafel||food
+1F9C7|waffle||food
+1F9C8|butter||food
+1F9C9|mate drink||food
+1F9CA|ice cube||food
+1F9CB|bubble tea||food
+1FAD0|blueberries||food
+1FAD1|bell pepper||food
+1FAD2|olive||food
+1FAD3|flatbread||food
+1FAD4|tamale||food
+1FAD5|fondue||food
+1FAD6|teapot||food
+1FAD7|pouring liquid||food
+1FAD8|beans||food
+1FAD9|jar||food
+1FADA|ginger root||food
+1FADB|pea pod||food
+1F5FA|world map||travel
+1F5FB|mount fuji||travel
+1F5FC|tokyo tower||travel
+1F5FD|statue of liberty||travel
+1F5FE|silhouette of japan||travel
+1F5FF|moyai||travel
+1F680|rocket||travel
+1F681|helicopter||travel
+1F682|steam locomotive||travel
+1F683|railway car||travel
+1F684|high speed train||travel
+1F685|high speed train with bullet nose||travel
+1F686|train||travel
+1F687|metro||travel
+1F688|light rail||travel
+1F689|station||travel
+1F68A|tram||travel
+1F68B|tram car||travel
+1F68C|bus||travel
+1F68D|oncoming bus||travel
+1F68E|trolleybus||travel
+1F68F|bus stop||travel
+1F690|minibus||travel
+1F691|ambulance||travel
+1F692|fire engine||travel
+1F693|police car||travel
+1F694|oncoming police car||travel
+1F695|taxi||travel
+1F696|oncoming taxi||travel
+1F697|automobile||travel
+1F698|oncoming automobile||travel
+1F699|recreational vehicle||travel
+1F69A|delivery truck||travel
+1F69B|articulated lorry||travel
+1F69C|tractor||travel
+1F69D|monorail||travel
+1F69E|mountain railway||travel
+1F69F|suspension railway||travel
+1F6A0|mountain cableway||travel
+1F6A1|aerial tramway||travel
+1F6A2|ship||travel
+1F6A3|rowboat||travel
+1F6A4|speedboat||travel
+1F6A5|horizontal traffic light||travel
+1F6A6|vertical traffic light||travel
+1F6A7|construction sign||travel
+1F6A8|police cars revolving light||travel
+1F6A9|triangular flag on post||travel
+1F6AA|door||travel
+1F6AB|no entry sign||travel
+1F6AC|smoking symbol||travel
+1F6AD|no smoking symbol||travel
+1F6AE|put litter in its place symbol||travel
+1F6AF|do not litter symbol||travel
+1F6B0|potable water symbol||travel
+1F6B1|non potable water symbol||travel
+1F6B2|bicycle||travel
+1F6B3|no bicycles||travel
+1F6B4|bicyclist||travel
+1F6B5|mountain bicyclist||travel
+1F6B6|pedestrian||travel
+1F6B7|no pedestrians||travel
+1F6B8|children crossing||travel
+1F6B9|mens symbol||travel
+1F6BA|womens symbol||travel
+1F6BB|restroom||travel
+1F6BC|baby symbol||travel
+1F6BD|toilet||travel
+1F6BE|water closet||travel
+1F6BF|shower||travel
+1F6C0|bath||travel
+1F6C1|bathtub||travel
+1F6C2|passport control||travel
+1F6C3|customs||travel
+1F6C4|baggage claim||travel
+1F6C5|left luggage||travel
+1F6D0|place of worship||travel
+1F6D1|octagonal sign||travel
+1F6D2|shopping trolley||travel
+1F6F0|satellite||travel
+1F6F1|oncoming fire engine||travel
+1F6F2|diesel locomotive||travel
+1F6F3|passenger ship||travel
+1F6F4|scooter||travel
+1F6F5|motor scooter||travel
+1F6F6|canoe||travel
+1F6F7|sled||travel
+1F6F8|flying saucer||travel
+1F6F9|skateboard||travel
+1F6FA|auto rickshaw||travel
+1F6FB|pickup truck||travel
+1F6FC|roller skate||travel
+1F380|ribbon||activities
+1F381|wrapped present||activities
+1F382|birthday cake||activities
+1F383|jack o lantern||activities
+1F384|christmas tree||activities
+1F385|father christmas||activities
+1F386|fireworks||activities
+1F387|firework sparkler||activities
+1F388|balloon||activities
+1F389|party popper||activities
+1F38A|confetti ball||activities
+1F38B|tanabata tree||activities
+1F38C|crossed flags||activities
+1F38D|pine decoration||activities
+1F38E|japanese dolls||activities
+1F38F|carp streamer||activities
+1F390|wind chime||activities
+1F391|moon viewing ceremony||activities
+1F392|school satchel||activities
+1F393|graduation cap||activities
+1F394|heart with tip on the left||activities
+1F395|bouquet of flowers||activities
+1F396|military medal||activities
+1F397|reminder ribbon||activities
+1F398|musical keyboard with jacks||activities
+1F399|studio microphone||activities
+1F39A|level slider||activities
+1F39B|control knobs||activities
+1F39C|beamed ascending musical notes||activities
+1F39D|beamed descending musical notes||activities
+1F39E|film frames||activities
+1F39F|admission tickets||activities
+1F3A0|carousel horse||activities
+1F3A1|ferris wheel||activities
+1F3A2|roller coaster||activities
+1F3A3|fishing pole and fish||activities
+1F3A4|microphone||activities
+1F3A5|movie camera||activities
+1F3A6|cinema||activities
+1F3A7|headphone||activities
+1F3A8|artist palette||activities
+1F3A9|top hat||activities
+1F3AA|circus tent||activities
+1F3AB|ticket||activities
+1F3AC|clapper board||activities
+1F3AD|performing arts||activities
+1F3AE|video game||activities
+1F3AF|direct hit||activities
+1F3B0|slot machine||activities
+1F3B1|billiards||activities
+1F3B2|game die||activities
+1F3B3|bowling||activities
+1F3B4|flower playing cards||activities
+1F3B5|musical note||activities
+1F3B6|multiple musical notes||activities
+1F3B7|saxophone||activities
+1F3B8|guitar||activities
+1F3B9|musical keyboard||activities
+1F3BA|trumpet||activities
+1F3BB|violin||activities
+1F3BC|musical score||activities
+1F3BD|running shirt with sash||activities
+1F3BE|tennis racquet and ball||activities
+1F3BF|ski and ski boot||activities
+1F3C0|basketball and hoop||activities
+1F3C1|chequered flag||activities
+1F3C2|snowboarder||activities
+1F3C3|runner||activities
+1F3C4|surfer||activities
+1F3C5|sports medal||activities
+1F3C6|trophy||activities
+1F3C7|horse racing||activities
+1F3C8|american football||activities
+1F3C9|rugby football||activities
+1F3CA|swimmer||activities
+1F3CB|weight lifter||activities
+1F3CC|golfer||activities
+1F3CD|racing motorcycle||activities
+1F3CE|racing car||activities
+1F3CF|cricket bat and ball||activities
+1F3D0|volleyball||activities
+1F3D1|field hockey stick and ball||activities
+1F3D2|ice hockey stick and puck||activities
+1F3D3|table tennis paddle and ball||activities
+1F3D4|snow capped mountain||activities
+1F3D5|camping||activities
+1F3D6|beach with umbrella||activities
+1F3D7|building construction||activities
+1F3D8|house buildings||activities
+1F3D9|cityscape||activities
+1F3DA|derelict house building||activities
+1F3DB|classical building||activities
+1F3DC|desert||activities
+1F3DD|desert island||activities
+1F3DE|national park||activities
+1F3DF|stadium||activities
+1F3E0|house building||activities
+1F3E1|house with garden||activities
+1F3E2|office building||activities
+1F3E3|japanese post office||activities
+1F3E4|european post office||activities
+1F3E5|hospital||activities
+1F3E6|bank||activities
+1F3E7|automated teller machine||activities
+1F3E8|hotel||activities
+1F3E9|love hotel||activities
+1F3EA|convenience store||activities
+1F3EB|school||activities
+1F3EC|department store||activities
+1F3ED|factory||activities
+1F3EE|izakaya lantern||activities
+1F3EF|japanese castle||activities
+1F3F0|european castle||activities
+1F3F1|white pennant||activities
+1F3F2|black pennant||activities
+1F3F3|waving white flag||activities
+1F3F4|waving black flag||activities
+1F3F5|rosette||activities
+1F3F6|black rosette||activities
+1F3F7|label||activities
+1F3F8|badminton racquet and shuttlecock||activities
+1F3F9|bow and arrow||activities
+1F3FA|amphora||activities
+1F3FB|emoji modifier fitzpatrick type 1 2||activities
+1F3FC|emoji modifier fitzpatrick type 3||activities
+1F3FD|emoji modifier fitzpatrick type 4||activities
+1F3FE|emoji modifier fitzpatrick type 5||activities
+1F3FF|emoji modifier fitzpatrick type 6||activities
+1F4A0|diamond shape with a dot inside||objects
+1F4A1|electric light bulb||objects
+1F4A2|anger symbol||objects
+1F4A3|bomb||objects
+1F4A4|sleeping symbol||objects
+1F4A5|collision symbol||objects
+1F4A6|splashing sweat symbol||objects
+1F4A7|droplet||objects
+1F4A8|dash symbol||objects
+1F4A9|pile of poo||objects
+1F4AA|flexed biceps||objects
+1F4AB|dizzy symbol||objects
+1F4AC|speech balloon||objects
+1F4AD|thought balloon||objects
+1F4AE|white flower||objects
+1F4AF|hundred points symbol||objects
+1F4B0|money bag||objects
+1F4B1|currency exchange||objects
+1F4B2|heavy dollar sign||objects
+1F4B3|credit card||objects
+1F4B4|banknote with yen sign||objects
+1F4B5|banknote with dollar sign||objects
+1F4B6|banknote with euro sign||objects
+1F4B7|banknote with pound sign||objects
+1F4B8|money with wings||objects
+1F4B9|chart with upwards trend and yen sign||objects
+1F4BA|seat||objects
+1F4BB|personal computer||objects
+1F4BC|briefcase||objects
+1F4BD|minidisc||objects
+1F4BE|floppy disk||objects
+1F4BF|optical disc||objects
+1F4C0|dvd||objects
+1F4C1|file folder||objects
+1F4C2|open file folder||objects
+1F4C3|page with curl||objects
+1F4C4|page facing up||objects
+1F4C5|calendar||objects
+1F4C6|tear off calendar||objects
+1F4C7|card index||objects
+1F4C8|chart with upwards trend||objects
+1F4C9|chart with downwards trend||objects
+1F4CA|bar chart||objects
+1F4CB|clipboard||objects
+1F4CC|pushpin||objects
+1F4CD|round pushpin||objects
+1F4CE|paperclip||objects
+1F4CF|straight ruler||objects
+1F4D0|triangular ruler||objects
+1F4D1|bookmark tabs||objects
+1F4D2|ledger||objects
+1F4D3|notebook||objects
+1F4D4|notebook with decorative cover||objects
+1F4D5|closed book||objects
+1F4D6|open book||objects
+1F4D7|green book||objects
+1F4D8|blue book||objects
+1F4D9|orange book||objects
+1F4DA|books||objects
+1F4DB|name badge||objects
+1F4DC|scroll||objects
+1F4DD|memo||objects
+1F4DE|telephone receiver||objects
+1F4DF|pager||objects
+1F4E0|fax machine||objects
+1F4E1|satellite antenna||objects
+1F4E2|public address loudspeaker||objects
+1F4E3|cheering megaphone||objects
+1F4E4|outbox tray||objects
+1F4E5|inbox tray||objects
+1F4E6|package||objects
+1F4E7|e mail symbol||objects
+1F4E8|incoming envelope||objects
+1F4E9|envelope with downwards arrow above||objects
+1F4EA|closed mailbox with lowered flag||objects
+1F4EB|closed mailbox with raised flag||objects
+1F4EC|open mailbox with raised flag||objects
+1F4ED|open mailbox with lowered flag||objects
+1F4EE|postbox||objects
+1F4EF|postal horn||objects
+1F4F0|newspaper||objects
+1F4F1|mobile phone||objects
+1F4F2|mobile phone with rightwards arrow at left||objects
+1F4F3|vibration mode||objects
+1F4F4|mobile phone off||objects
+1F4F5|no mobile phones||objects
+1F4F6|antenna with bars||objects
+1F4F7|camera||objects
+1F4F8|camera with flash||objects
+1F4F9|video camera||objects
+1F4FA|television||objects
+1F4FB|radio||objects
+1F4FC|videocassette||objects
+1F4FD|film projector||objects
+1F4FE|portable stereo||objects
+1F4FF|prayer beads||objects
+1F5A5|desktop computer||objects
+1F5A6|keyboard and mouse||objects
+1F5A7|three networked computers||objects
+1F5A8|printer||objects
+1F5A9|pocket calculator||objects
+1F5AA|black hard shell floppy disk||objects
+1F5AB|white hard shell floppy disk||objects
+1F5AC|soft shell floppy disk||objects
+1F5AD|tape cartridge||objects
+1F5AE|wired keyboard||objects
+1F5AF|one button mouse||objects
+1F5B0|two button mouse||objects
+1F5B1|three button mouse||objects
+1F5B2|trackball||objects
+1F5B3|old personal computer||objects
+1F5B4|hard disk||objects
+1F5B5|screen||objects
+1F5B6|printer icon||objects
+1F5B7|fax icon||objects
+1F5B8|optical disc icon||objects
+1F5B9|document with text||objects
+1F5BA|document with text and picture||objects
+1F5BB|document with picture||objects
+1F5BC|frame with picture||objects
+1F5BD|frame with tiles||objects
+1F5BE|frame with an x||objects
+1F5BF|black folder||objects
+1F5C0|folder||objects
+1F5C1|open folder||objects
+1F5C2|card index dividers||objects
+1F5C3|card file box||objects
+1F5C4|file cabinet||objects
+1F5C5|empty note||objects
+1F5C6|empty note page||objects
+1F5C7|empty note pad||objects
+1F5C8|note||objects
+1F5C9|note page||objects
+1F5CA|note pad||objects
+1F5CB|empty document||objects
+1F5CC|empty page||objects
+1F5CD|empty pages||objects
+1F5CE|document||objects
+1F5CF|page||objects
+1F5D0|pages||objects
+1F5D1|wastebasket||objects
+1F5D2|spiral note pad||objects
+1F5D3|spiral calendar pad||objects
+1F5D4|desktop window||objects
+1F5D5|minimize||objects
+1F5D6|maximize||objects
+1F5D7|overlap||objects
+1F5D8|clockwise right and left semicircle arrows||objects
+1F5D9|cancellation x||objects
+1F5DA|increase font size symbol||objects
+1F5DB|decrease font size symbol||objects
+1F5DC|compression||objects
+1F5DD|old key||objects
+1F5DE|rolled up newspaper||objects
+1F5DF|page with circled text||objects
+1F5E0|stock chart||objects
+1F5E1|dagger knife||objects
+1F5E2|lips||objects
+1F5E3|speaking head in silhouette||objects
+1F5E4|three rays above||objects
+1F5E5|three rays below||objects
+1F5E6|three rays left||objects
+1F5E7|three rays right||objects
+1F5E8|left speech bubble||objects
+1F5E9|right speech bubble||objects
+1F5EA|two speech bubbles||objects
+1F5EB|three speech bubbles||objects
+1F5EC|left thought bubble||objects
+1F5ED|right thought bubble||objects
+1F5EE|left anger bubble||objects
+1F5EF|right anger bubble||objects
+1F5F0|mood bubble||objects
+1F5F1|lightning mood bubble||objects
+1F5F2|lightning mood||objects
+1F5F3|ballot box with ballot||objects
+1F5F4|ballot script x||objects
+1F5F5|ballot box with script x||objects
+1F5F6|ballot bold script x||objects
+1F5F7|ballot box with bold script x||objects
+1F5F8|light check mark||objects
+1F5F9|ballot box with bold check||objects
+1F6E0|hammer and wrench||objects
+1F6E1|shield||objects
+1F6E2|oil drum||objects
+1F6E3|motorway||objects
+1F6E4|railway track||objects
+1F6E5|motor boat||objects
+1F6E6|up pointing military airplane||objects
+1F6E7|up pointing airplane||objects
+1F6E8|up pointing small airplane||objects
+1F6E9|small airplane||objects
+1F6EA|northeast pointing airplane||objects
+1F6EB|airplane departure||objects
+1F6EC|airplane arriving||objects
+1F9AF|probing cane||objects
+1F9BA|safety vest||objects
+1F9BB|ear with hearing aid||objects
+1F9BC|motorized wheelchair||objects
+1F9BD|manual wheelchair||objects
+1F9BE|mechanical arm||objects
+1F9BF|mechanical leg||objects
+1F9CC|troll||objects
+1F9D0|face with monocle||objects
+1F9DE|genie||objects
+1F9DF|zombie||objects
+1F9E0|brain||objects
+1F9E1|orange heart||objects
+1F9E2|billed cap||objects
+1F9E3|scarf||objects
+1F9E4|gloves||objects
+1F9E5|coat||objects
+1F9E6|socks||objects
+1F9E7|red gift envelope||objects
+1F9E8|firecracker||objects
+1F9E9|jigsaw puzzle piece||objects
+1F9EA|test tube||objects
+1F9EB|petri dish||objects
+1F9EC|dna double helix||objects
+1F9ED|compass||objects
+1F9EE|abacus||objects
+1F9EF|fire extinguisher||objects
+1F9F0|toolbox||objects
+1F9F1|brick||objects
+1F9F2|magnet||objects
+1F9F3|luggage||objects
+1F9F4|lotion bottle||objects
+1F9F5|spool of thread||objects
+1F9F6|ball of yarn||objects
+1F9F7|safety pin||objects
+1F9F8|teddy bear||objects
+1F9F9|broom||objects
+1F9FA|basket||objects
+1F9FB|roll of paper||objects
+1F9FC|bar of soap||objects
+1F9FD|sponge||objects
+1F9FE|receipt||objects
+1F9FF|nazar amulet||objects
+1FA70|ballet shoes||objects
+1FA71|one piece swimsuit||objects
+1FA72|briefs||objects
+1FA73|shorts||objects
+1FA74|thong sandal||objects
+1FA75|light blue heart||objects
+1FA76|grey heart||objects
+1FA77|pink heart||objects
+1FA78|drop of blood||objects
+1FA79|adhesive bandage||objects
+1FA7A|stethoscope||objects
+1FA7B|x ray||objects
+1FA7C|crutch||objects
+2600|black sun with rays||symbols
+2601|cloud||symbols
+2602|umbrella||symbols
+2603|snowman||symbols
+2604|comet||symbols
+2605|black star|star favourite favorite full|symbols
+2606|white star|star empty outline|symbols
+2607|lightning||symbols
+2608|thunderstorm||symbols
+2609|sun||symbols
+260A|ascending node||symbols
+260B|descending node||symbols
+260C|conjunction||symbols
+260D|opposition||symbols
+260E|black telephone||symbols
+260F|white telephone||symbols
+2610|ballot box|checkbox empty ballot|symbols
+2611|ballot box with check|checkbox tick ballot|symbols
+2612|ballot box with x|checkbox cross ballot|symbols
+2613|saltire||symbols
+2614|umbrella with rain drops||symbols
+2615|hot beverage||symbols
+2616|white shogi piece||symbols
+2617|black shogi piece||symbols
+2618|shamrock||symbols
+2619|reversed rotated floral heart bullet||symbols
+261A|black left pointing index||symbols
+261B|black right pointing index||symbols
+261C|white left pointing index||symbols
+261D|white up pointing index||symbols
+261E|white right pointing index|hand right point|symbols
+261F|white down pointing index||symbols
+2620|skull and crossbones||symbols
+2621|caution sign||symbols
+2622|radioactive sign||symbols
+2623|biohazard sign||symbols
+2624|caduceus||symbols
+2625|ankh||symbols
+2626|orthodox cross||symbols
+2627|chi rho||symbols
+2628|cross of lorraine||symbols
+2629|cross of jerusalem||symbols
+262A|star and crescent||symbols
+262B|farsi symbol||symbols
+262C|adi shakti||symbols
+262D|hammer and sickle||symbols
+262E|peace symbol||symbols
+262F|yin yang||symbols
+2630|trigram for heaven||symbols
+2631|trigram for lake||symbols
+2632|trigram for fire||symbols
+2633|trigram for thunder||symbols
+2634|trigram for wind||symbols
+2635|trigram for water||symbols
+2636|trigram for mountain||symbols
+2637|trigram for earth||symbols
+2638|wheel of dharma||symbols
+2639|white frowning face||symbols
+263A|white smiling face||symbols
+263B|black smiling face||symbols
+263C|white sun with rays||symbols
+263D|first quarter moon||symbols
+263E|last quarter moon||symbols
+263F|mercury||symbols
+2640|female sign||symbols
+2641|earth||symbols
+2642|male sign||symbols
+2643|jupiter||symbols
+2644|saturn||symbols
+2645|uranus||symbols
+2646|neptune||symbols
+2647|pluto||symbols
+2648|aries||symbols
+2649|taurus||symbols
+264A|gemini||symbols
+264B|cancer||symbols
+264C|leo||symbols
+264D|virgo||symbols
+264E|libra||symbols
+264F|scorpius||symbols
+2650|sagittarius||symbols
+2651|capricorn||symbols
+2652|aquarius||symbols
+2653|pisces||symbols
+2654|white chess king||symbols
+2655|white chess queen||symbols
+2656|white chess rook||symbols
+2657|white chess bishop||symbols
+2658|white chess knight||symbols
+2659|white chess pawn||symbols
+265A|black chess king||symbols
+265B|black chess queen||symbols
+265C|black chess rook||symbols
+265D|black chess bishop||symbols
+265E|black chess knight||symbols
+265F|black chess pawn||symbols
+2660|black spade suit||symbols
+2661|white heart suit||symbols
+2662|white diamond suit||symbols
+2663|black club suit||symbols
+2664|white spade suit||symbols
+2665|black heart suit||symbols
+2666|black diamond suit||symbols
+2667|white club suit||symbols
+2668|hot springs||symbols
+2669|quarter note||symbols
+266A|eighth note||symbols
+266B|beamed eighth notes||symbols
+266C|beamed sixteenth notes||symbols
+266D|music flat sign||symbols
+266E|music natural sign||symbols
+266F|music sharp sign||symbols
+2670|west syriac cross||symbols
+2671|east syriac cross||symbols
+2672|universal recycling symbol||symbols
+2673|recycling symbol for type 1 plastics||symbols
+2674|recycling symbol for type 2 plastics||symbols
+2675|recycling symbol for type 3 plastics||symbols
+2676|recycling symbol for type 4 plastics||symbols
+2677|recycling symbol for type 5 plastics||symbols
+2678|recycling symbol for type 6 plastics||symbols
+2679|recycling symbol for type 7 plastics||symbols
+267A|recycling symbol for generic materials||symbols
+267B|black universal recycling symbol||symbols
+267C|recycled paper symbol||symbols
+267D|partially recycled paper symbol||symbols
+267E|permanent paper sign||symbols
+267F|wheelchair symbol||symbols
+2680|die face 1||symbols
+2681|die face 2||symbols
+2682|die face 3||symbols
+2683|die face 4||symbols
+2684|die face 5||symbols
+2685|die face 6||symbols
+2686|white circle with dot right||symbols
+2687|white circle with two dots||symbols
+2688|black circle with white dot right||symbols
+2689|black circle with two white dots||symbols
+268A|monogram for yang||symbols
+268B|monogram for yin||symbols
+268C|digram for greater yang||symbols
+268D|digram for lesser yin||symbols
+268E|digram for lesser yang||symbols
+268F|digram for greater yin||symbols
+2690|white flag||symbols
+2691|black flag||symbols
+2692|hammer and pick||symbols
+2693|anchor||symbols
+2694|crossed swords||symbols
+2695|staff of aesculapius||symbols
+2696|scales||symbols
+2697|alembic||symbols
+2698|flower||symbols
+2699|gear||symbols
+269A|staff of hermes||symbols
+269B|atom symbol||symbols
+269C|fleur de lis||symbols
+269D|outlined white star||symbols
+269E|three lines converging right||symbols
+269F|three lines converging left||symbols
+26A0|warning sign|warning caution alert|symbols
+26A1|high voltage sign|lightning bolt zap|symbols
+26A2|doubled female sign||symbols
+26A3|doubled male sign||symbols
+26A4|interlocked female and male sign||symbols
+26A5|male and female sign||symbols
+26A6|male with stroke sign||symbols
+26A7|male with stroke and male and female sign||symbols
+26A8|vertical male with stroke sign||symbols
+26A9|horizontal male with stroke sign||symbols
+26AA|medium white circle||symbols
+26AB|medium black circle||symbols
+26AC|medium small white circle||symbols
+26AD|marriage symbol||symbols
+26AE|divorce symbol||symbols
+26AF|unmarried partnership symbol||symbols
+26B0|coffin||symbols
+26B1|funeral urn||symbols
+26B2|neuter||symbols
+26B3|ceres||symbols
+26B4|pallas||symbols
+26B5|juno||symbols
+26B6|vesta||symbols
+26B7|chiron||symbols
+26B8|black moon lilith||symbols
+26B9|sextile||symbols
+26BA|semisextile||symbols
+26BB|quincunx||symbols
+26BC|sesquiquadrate||symbols
+26BD|soccer ball||symbols
+26BE|baseball||symbols
+26BF|squared key||symbols
+26C0|white draughts man||symbols
+26C1|white draughts king||symbols
+26C2|black draughts man||symbols
+26C3|black draughts king||symbols
+26C4|snowman without snow||symbols
+26C5|sun behind cloud||symbols
+26C6|rain||symbols
+26C7|black snowman||symbols
+26C8|thunder cloud and rain||symbols
+26C9|turned white shogi piece||symbols
+26CA|turned black shogi piece||symbols
+26CB|white diamond in square||symbols
+26CC|crossing lanes||symbols
+26CD|disabled car||symbols
+26CE|ophiuchus||symbols
+26CF|pick||symbols
+26D0|car sliding||symbols
+26D1|helmet with white cross||symbols
+26D2|circled crossing lanes||symbols
+26D3|chains||symbols
+26D4|no entry||symbols
+26D5|alternate one way left way traffic||symbols
+26D6|black two way left way traffic||symbols
+26D7|white two way left way traffic||symbols
+26D8|black left lane merge||symbols
+26D9|white left lane merge||symbols
+26DA|drive slow sign||symbols
+26DB|heavy white down pointing triangle||symbols
+26DC|left closed entry||symbols
+26DD|squared saltire||symbols
+26DE|falling diagonal in white circle in black square||symbols
+26DF|black truck||symbols
+26E0|restricted left entry 1||symbols
+26E1|restricted left entry 2||symbols
+26E2|astronomical symbol for uranus||symbols
+26E3|heavy circle with stroke and two dots above||symbols
+26E4|pentagram||symbols
+26E5|right handed interlaced pentagram||symbols
+26E6|left handed interlaced pentagram||symbols
+26E7|inverted pentagram||symbols
+26E8|black cross on shield||symbols
+26E9|shinto shrine||symbols
+26EA|church||symbols
+26EB|castle||symbols
+26EC|historic site||symbols
+26ED|gear without hub||symbols
+26EE|gear with handles||symbols
+26EF|map symbol for lighthouse||symbols
+26F0|mountain||symbols
+26F1|umbrella on ground||symbols
+26F2|fountain||symbols
+26F3|flag in hole||symbols
+26F4|ferry||symbols
+26F5|sailboat||symbols
+26F6|square four corners||symbols
+26F7|skier||symbols
+26F8|ice skate||symbols
+26F9|person with ball||symbols
+26FA|tent||symbols
+26FB|japanese bank symbol||symbols
+26FC|headstone graveyard symbol||symbols
+26FD|fuel pump||symbols
+26FE|cup on black square||symbols
+26FF|white flag with horizontal middle black stripe||symbols
+1F460|high heeled shoe||symbols
+1F461|womans sandal||symbols
+1F462|womans boots||symbols
+1F463|footprints||symbols
+1F488|barber pole||symbols
+1F489|syringe||symbols
+1F48A|pill||symbols
+1F48B|kiss mark||symbols
+1F48C|love letter||symbols
+1F48D|ring||symbols
+1F48E|gem stone||symbols
+1F48F|kiss||symbols
+1F490|bouquet||symbols
+1F491|couple with heart||symbols
+1F492|wedding||symbols
+1F493|beating heart||symbols
+1F494|broken heart||symbols
+1F495|two hearts||symbols
+1F496|sparkling heart||symbols
+1F497|growing heart||symbols
+1F498|heart with arrow||symbols
+1F499|blue heart||symbols
+1F49A|green heart||symbols
+1F49B|yellow heart||symbols
+1F49C|purple heart||symbols
+1F49D|heart with ribbon||symbols
+1F49E|revolving hearts||symbols
+1F49F|heart decoration||symbols
+1F500|twisted rightwards arrows||symbols
+1F501|clockwise rightwards and leftwards open circle arrows||symbols
+1F502|clockwise rightwards and leftwards open circle arrows with circled one overlay||symbols
+1F503|clockwise downwards and upwards open circle arrows||symbols
+1F504|anticlockwise downwards and upwards open circle arrows||symbols
+1F505|low brightness symbol||symbols
+1F506|high brightness symbol||symbols
+1F507|speaker with cancellation stroke||symbols
+1F508|speaker||symbols
+1F509|speaker with one sound wave||symbols
+1F50A|speaker with three sound waves||symbols
+1F50B|battery||symbols
+1F50C|electric plug||symbols
+1F50D|left pointing magnifying glass||symbols
+1F50E|right pointing magnifying glass||symbols
+1F50F|lock with ink pen||symbols
+1F510|closed lock with key||symbols
+1F511|key||symbols
+1F512|lock||symbols
+1F513|open lock||symbols
+1F514|bell||symbols
+1F515|bell with cancellation stroke||symbols
+1F516|bookmark||symbols
+1F517|link symbol||symbols
+1F518|radio button||symbols
+1F519|back with leftwards arrow above||symbols
+1F51A|end with leftwards arrow above||symbols
+1F51B|on with exclamation mark with left right arrow above||symbols
+1F51C|soon with rightwards arrow above||symbols
+1F51D|top with upwards arrow above||symbols
+1F51E|no one under eighteen symbol||symbols
+1F51F|keycap ten||symbols
+1F520|input symbol for latin capital letters||symbols
+1F521|input symbol for latin small letters||symbols
+1F522|input symbol for numbers||symbols
+1F523|input symbol for symbols||symbols
+1F524|input symbol for latin letters||symbols
+1F525|fire||symbols
+1F526|electric torch||symbols
+1F527|wrench||symbols
+1F528|hammer||symbols
+1F529|nut and bolt||symbols
+1F52A|hocho||symbols
+1F52B|pistol||symbols
+1F52C|microscope||symbols
+1F52D|telescope||symbols
+1F52E|crystal ball||symbols
+1F52F|six pointed star with middle dot||symbols
+1F530|japanese symbol for beginner||symbols
+1F531|trident emblem||symbols
+1F532|black square button||symbols
+1F533|white square button||symbols
+1F534|large red circle||symbols
+1F535|large blue circle||symbols
+1F536|large orange diamond||symbols
+1F537|large blue diamond||symbols
+1F538|small orange diamond||symbols
+1F539|small blue diamond||symbols
+1F53A|up pointing red triangle||symbols
+1F53B|down pointing red triangle||symbols
+1F53C|up pointing small red triangle||symbols
+1F53D|down pointing small red triangle||symbols
+1F53E|lower right shadowed white circle||symbols
+1F53F|upper right shadowed white circle||symbols
+1F540|circled cross pommee||symbols
+1F541|cross pommee with half circle below||symbols
+1F542|cross pommee||symbols
+1F543|notched left semicircle with three dots||symbols
+1F544|notched right semicircle with three dots||symbols
+1F545|symbol for marks chapter||symbols
+1F546|white latin cross||symbols
+1F547|heavy latin cross||symbols
+1F548|celtic cross||symbols
+1F549|om symbol||symbols
+1F54E|menorah with nine branches||symbols
+1F54F|bowl of hygieia||symbols
+1F550|clock face one oclock||symbols
+1F551|clock face two oclock||symbols
+1F552|clock face three oclock||symbols
+1F553|clock face four oclock||symbols
+1F554|clock face five oclock||symbols
+1F555|clock face six oclock||symbols
+1F556|clock face seven oclock||symbols
+1F557|clock face eight oclock||symbols
+1F558|clock face nine oclock||symbols
+1F559|clock face ten oclock||symbols
+1F55A|clock face eleven oclock||symbols
+1F55B|clock face twelve oclock||symbols
+1F55C|clock face one thirty||symbols
+1F55D|clock face two thirty||symbols
+1F55E|clock face three thirty||symbols
+1F55F|clock face four thirty||symbols
+1F560|clock face five thirty||symbols
+1F561|clock face six thirty||symbols
+1F562|clock face seven thirty||symbols
+1F563|clock face eight thirty||symbols
+1F564|clock face nine thirty||symbols
+1F565|clock face ten thirty||symbols
+1F566|clock face eleven thirty||symbols
+1F567|clock face twelve thirty||symbols
+1F568|right speaker||symbols
+1F569|right speaker with one sound wave||symbols
+1F56A|right speaker with three sound waves||symbols
+1F56B|bullhorn||symbols
+1F56C|bullhorn with sound waves||symbols
+1F56D|ringing bell||symbols
+1F56E|book||symbols
+1F56F|candle||symbols
+1F570|mantelpiece clock||symbols
+1F571|black skull and crossbones||symbols
+1F572|no piracy||symbols
+1F573|hole||symbols
+1F57B|left hand telephone receiver||symbols
+1F57C|telephone receiver with page||symbols
+1F57D|right hand telephone receiver||symbols
+1F57E|white touchtone telephone||symbols
+1F57F|black touchtone telephone||symbols
+1F580|telephone on top of modem||symbols
+1F581|clamshell mobile phone||symbols
+1F582|back of envelope||symbols
+1F583|stamped envelope||symbols
+1F584|envelope with lightning||symbols
+1F585|flying envelope||symbols
+1F586|pen over stamped envelope||symbols
+1F587|linked paperclips||symbols
+1F588|black pushpin||symbols
+1F589|lower left pencil||symbols
+1F58A|lower left ballpoint pen||symbols
+1F58B|lower left fountain pen||symbols
+1F58C|lower left paintbrush||symbols
+1F58D|lower left crayon||symbols
+1F58E|left writing hand||symbols
+1F58F|turned ok hand sign||symbols
+1F597|white down pointing left hand index||symbols
+1F598|sideways white left pointing index||symbols
+1F599|sideways white right pointing index||symbols
+1F59A|sideways black left pointing index||symbols
+1F59B|sideways black right pointing index||symbols
+1F59C|black left pointing backhand index||symbols
+1F59D|black right pointing backhand index||symbols
+1F59E|sideways white up pointing index||symbols
+1F59F|sideways white down pointing index||symbols
+1F5A0|sideways black up pointing index||symbols
+1F5A1|sideways black down pointing index||symbols
+1F5A2|black up pointing backhand index||symbols
+1F5A3|black down pointing backhand index||symbols
+1F5A4|black heart||symbols
+1F650|north west pointing leaf||symbols
+1F651|south west pointing leaf||symbols
+1F652|north east pointing leaf||symbols
+1F653|south east pointing leaf||symbols
+1F654|turned north west pointing leaf||symbols
+1F655|turned south west pointing leaf||symbols
+1F656|turned north east pointing leaf||symbols
+1F657|turned south east pointing leaf||symbols
+1F658|north west pointing vine leaf||symbols
+1F659|south west pointing vine leaf||symbols
+1F65A|north east pointing vine leaf||symbols
+1F65B|south east pointing vine leaf||symbols
+1F65C|heavy north west pointing vine leaf||symbols
+1F65D|heavy south west pointing vine leaf||symbols
+1F65E|heavy north east pointing vine leaf||symbols
+1F65F|heavy south east pointing vine leaf||symbols
+1F660|north west pointing bud||symbols
+1F661|south west pointing bud||symbols
+1F662|north east pointing bud||symbols
+1F663|south east pointing bud||symbols
+1F664|heavy north west pointing bud||symbols
+1F665|heavy south west pointing bud||symbols
+1F666|heavy north east pointing bud||symbols
+1F667|heavy south east pointing bud||symbols
+1F668|hollow quilt square ornament||symbols
+1F669|hollow quilt square ornament in black square||symbols
+1F66A|solid quilt square ornament||symbols
+1F66B|solid quilt square ornament in black square||symbols
+1F66C|leftwards rocket||symbols
+1F66D|upwards rocket||symbols
+1F66E|rightwards rocket||symbols
+1F66F|downwards rocket||symbols
+1F670|script ligature et ornament||symbols
+1F671|heavy script ligature et ornament||symbols
+1F672|ligature open et ornament||symbols
+1F673|heavy ligature open et ornament||symbols
+1F674|heavy ampersand ornament||symbols
+1F675|swash ampersand ornament||symbols
+1F676|sans serif heavy double turned comma quotation mark ornament||symbols
+1F677|sans serif heavy double comma quotation mark ornament||symbols
+1F678|sans serif heavy low double comma quotation mark ornament||symbols
+1F679|heavy interrobang ornament||symbols
+1F67A|sans serif interrobang ornament||symbols
+1F67B|heavy sans serif interrobang ornament||symbols
+1F67C|very heavy solidus||symbols
+1F67D|very heavy reverse solidus||symbols
+1F67E|checker board||symbols
+1F67F|reverse checker board||symbols
+1F6C6|triangle with rounded corners||symbols
+1F6C7|prohibited sign||symbols
+1F6C8|circled information source||symbols
+1F6C9|boys symbol||symbols
+1F6CA|girls symbol||symbols
+1F6CB|couch and lamp||symbols
+1F6CC|sleeping accommodation||symbols
+1F6CD|shopping bags||symbols
+1F6CE|bellhop bell||symbols
+1F6CF|bed||symbols
+1F6D3|stupa||symbols
+1F6D4|pagoda||symbols
+1F6D5|hindu temple||symbols
+1F6D6|hut||symbols
+1F6D7|elevator||symbols
+1F6DC|wireless||symbols
+1F6DD|playground slide||symbols
+1F6DE|wheel||symbols
+1F6DF|ring buoy||symbols
+1F800|leftwards arrow with small triangle arrowhead||symbols
+1F801|upwards arrow with small triangle arrowhead||symbols
+1F802|rightwards arrow with small triangle arrowhead||symbols
+1F803|downwards arrow with small triangle arrowhead||symbols
+1F804|leftwards arrow with medium triangle arrowhead||symbols
+1F805|upwards arrow with medium triangle arrowhead||symbols
+1F806|rightwards arrow with medium triangle arrowhead||symbols
+1F807|downwards arrow with medium triangle arrowhead||symbols
+1F808|leftwards arrow with large triangle arrowhead||symbols
+1F809|upwards arrow with large triangle arrowhead||symbols
+1F80A|rightwards arrow with large triangle arrowhead||symbols
+1F80B|downwards arrow with large triangle arrowhead||symbols
+1F810|leftwards arrow with small equilateral arrowhead||symbols
+1F811|upwards arrow with small equilateral arrowhead||symbols
+1F812|rightwards arrow with small equilateral arrowhead||symbols
+1F813|downwards arrow with small equilateral arrowhead||symbols
+1F814|leftwards arrow with equilateral arrowhead||symbols
+1F815|upwards arrow with equilateral arrowhead||symbols
+1F816|rightwards arrow with equilateral arrowhead||symbols
+1F817|downwards arrow with equilateral arrowhead||symbols
+1F818|heavy leftwards arrow with equilateral arrowhead||symbols
+1F819|heavy upwards arrow with equilateral arrowhead||symbols
+1F81A|heavy rightwards arrow with equilateral arrowhead||symbols
+1F81B|heavy downwards arrow with equilateral arrowhead||symbols
+1F81C|heavy leftwards arrow with large equilateral arrowhead||symbols
+1F81D|heavy upwards arrow with large equilateral arrowhead||symbols
+1F81E|heavy rightwards arrow with large equilateral arrowhead||symbols
+1F81F|heavy downwards arrow with large equilateral arrowhead||symbols
+1F820|leftwards triangle headed arrow with narrow shaft||symbols
+1F821|upwards triangle headed arrow with narrow shaft||symbols
+1F822|rightwards triangle headed arrow with narrow shaft||symbols
+1F823|downwards triangle headed arrow with narrow shaft||symbols
+1F824|leftwards triangle headed arrow with medium shaft||symbols
+1F825|upwards triangle headed arrow with medium shaft||symbols
+1F826|rightwards triangle headed arrow with medium shaft||symbols
+1F827|downwards triangle headed arrow with medium shaft||symbols
+1F828|leftwards triangle headed arrow with bold shaft||symbols
+1F829|upwards triangle headed arrow with bold shaft||symbols
+1F82A|rightwards triangle headed arrow with bold shaft||symbols
+1F82B|downwards triangle headed arrow with bold shaft||symbols
+1F82C|leftwards triangle headed arrow with heavy shaft||symbols
+1F82D|upwards triangle headed arrow with heavy shaft||symbols
+1F82E|rightwards triangle headed arrow with heavy shaft||symbols
+1F82F|downwards triangle headed arrow with heavy shaft||symbols
+1F830|leftwards triangle headed arrow with very heavy shaft||symbols
+1F831|upwards triangle headed arrow with very heavy shaft||symbols
+1F832|rightwards triangle headed arrow with very heavy shaft||symbols
+1F833|downwards triangle headed arrow with very heavy shaft||symbols
+1F834|leftwards finger post arrow||symbols
+1F835|upwards finger post arrow||symbols
+1F836|rightwards finger post arrow||symbols
+1F837|downwards finger post arrow||symbols
+1F838|leftwards squared arrow||symbols
+1F839|upwards squared arrow||symbols
+1F83A|rightwards squared arrow||symbols
+1F83B|downwards squared arrow||symbols
+1F83C|leftwards compressed arrow||symbols
+1F83D|upwards compressed arrow||symbols
+1F83E|rightwards compressed arrow||symbols
+1F83F|downwards compressed arrow||symbols
+1F840|leftwards heavy compressed arrow||symbols
+1F841|upwards heavy compressed arrow||symbols
+1F842|rightwards heavy compressed arrow||symbols
+1F843|downwards heavy compressed arrow||symbols
+1F844|leftwards heavy arrow||symbols
+1F845|upwards heavy arrow||symbols
+1F846|rightwards heavy arrow||symbols
+1F847|downwards heavy arrow||symbols
+1F850|leftwards sans serif arrow||symbols
+1F851|upwards sans serif arrow||symbols
+1F852|rightwards sans serif arrow||symbols
+1F853|downwards sans serif arrow||symbols
+1F854|north west sans serif arrow||symbols
+1F855|north east sans serif arrow||symbols
+1F856|south east sans serif arrow||symbols
+1F857|south west sans serif arrow||symbols
+1F858|left right sans serif arrow||symbols
+1F859|up down sans serif arrow||symbols
+1F860|wide headed leftwards light barb arrow||symbols
+1F861|wide headed upwards light barb arrow||symbols
+1F862|wide headed rightwards light barb arrow||symbols
+1F863|wide headed downwards light barb arrow||symbols
+1F864|wide headed north west light barb arrow||symbols
+1F865|wide headed north east light barb arrow||symbols
+1F866|wide headed south east light barb arrow||symbols
+1F867|wide headed south west light barb arrow||symbols
+1F868|wide headed leftwards barb arrow||symbols
+1F869|wide headed upwards barb arrow||symbols
+1F86A|wide headed rightwards barb arrow||symbols
+1F86B|wide headed downwards barb arrow||symbols
+1F86C|wide headed north west barb arrow||symbols
+1F86D|wide headed north east barb arrow||symbols
+1F86E|wide headed south east barb arrow||symbols
+1F86F|wide headed south west barb arrow||symbols
+1F870|wide headed leftwards medium barb arrow||symbols
+1F871|wide headed upwards medium barb arrow||symbols
+1F872|wide headed rightwards medium barb arrow||symbols
+1F873|wide headed downwards medium barb arrow||symbols
+1F874|wide headed north west medium barb arrow||symbols
+1F875|wide headed north east medium barb arrow||symbols
+1F876|wide headed south east medium barb arrow||symbols
+1F877|wide headed south west medium barb arrow||symbols
+1F878|wide headed leftwards heavy barb arrow||symbols
+1F879|wide headed upwards heavy barb arrow||symbols
+1F87A|wide headed rightwards heavy barb arrow||symbols
+1F87B|wide headed downwards heavy barb arrow||symbols
+1F87C|wide headed north west heavy barb arrow||symbols
+1F87D|wide headed north east heavy barb arrow||symbols
+1F87E|wide headed south east heavy barb arrow||symbols
+1F87F|wide headed south west heavy barb arrow||symbols
+1F880|wide headed leftwards very heavy barb arrow||symbols
+1F881|wide headed upwards very heavy barb arrow||symbols
+1F882|wide headed rightwards very heavy barb arrow||symbols
+1F883|wide headed downwards very heavy barb arrow||symbols
+1F884|wide headed north west very heavy barb arrow||symbols
+1F885|wide headed north east very heavy barb arrow||symbols
+1F886|wide headed south east very heavy barb arrow||symbols
+1F887|wide headed south west very heavy barb arrow||symbols
+1F890|leftwards triangle arrowhead||symbols
+1F891|upwards triangle arrowhead||symbols
+1F892|rightwards triangle arrowhead||symbols
+1F893|downwards triangle arrowhead||symbols
+1F894|leftwards white arrow within triangle arrowhead||symbols
+1F895|upwards white arrow within triangle arrowhead||symbols
+1F896|rightwards white arrow within triangle arrowhead||symbols
+1F897|downwards white arrow within triangle arrowhead||symbols
+1F898|leftwards arrow with notched tail||symbols
+1F899|upwards arrow with notched tail||symbols
+1F89A|rightwards arrow with notched tail||symbols
+1F89B|downwards arrow with notched tail||symbols
+1F89C|heavy arrow shaft width one||symbols
+1F89D|heavy arrow shaft width two thirds||symbols
+1F89E|heavy arrow shaft width one half||symbols
+1F89F|heavy arrow shaft width one third||symbols
+1F8A0|leftwards bottom shaded white arrow||symbols
+1F8A1|rightwards bottom shaded white arrow||symbols
+1F8A2|leftwards top shaded white arrow||symbols
+1F8A3|rightwards top shaded white arrow||symbols
+1F8A4|leftwards left shaded white arrow||symbols
+1F8A5|rightwards right shaded white arrow||symbols
+1F8A6|leftwards right shaded white arrow||symbols
+1F8A7|rightwards left shaded white arrow||symbols
+1F8A8|leftwards back tilted shadowed white arrow||symbols
+1F8A9|rightwards back tilted shadowed white arrow||symbols
+1F8AA|leftwards front tilted shadowed white arrow||symbols
+1F8AB|rightwards front tilted shadowed white arrow||symbols
+1F8AC|white arrow shaft width one||symbols
+1F8AD|white arrow shaft width two thirds||symbols
+1F8B0|arrow pointing upwards then north west||symbols
+1F8B1|arrow pointing rightwards then curving south west||symbols
+1F900|circled cross formee with four dots||symbols
+1F901|circled cross formee with two dots||symbols
+1F902|circled cross formee||symbols
+1F903|left half circle with four dots||symbols
+1F904|left half circle with three dots||symbols
+1F905|left half circle with two dots||symbols
+1F906|left half circle with dot||symbols
+1F907|left half circle||symbols
+1F908|downward facing hook||symbols
+1F909|downward facing notched hook||symbols
+1F90A|downward facing hook with dot||symbols
+1F90B|downward facing notched hook with dot||symbols
+1F90C|pinched fingers||symbols
+1F90D|white heart||symbols
+1F90E|brown heart||symbols
+1F90F|pinching hand||symbols
+1F940|wilted flower||symbols
+1F941|drum with drumsticks||symbols
+1F942|clinking glasses||symbols
+1F943|tumbler glass||symbols
+1F944|spoon||symbols
+1F945|goal net||symbols
+1F946|rifle||symbols
+1F947|first place medal||symbols
+1F948|second place medal||symbols
+1F949|third place medal||symbols
+1F94A|boxing glove||symbols
+1F94B|martial arts uniform||symbols
+1F94C|curling stone||symbols
+1F94D|lacrosse stick and ball||symbols
+1F94E|softball||symbols
+1F94F|flying disc||symbols
+1F970|smiling face with smiling eyes and three hearts||symbols
+1F971|yawning face||symbols
+1F972|smiling face with tear||symbols
+1F973|face with party horn and party hat||symbols
+1F974|face with uneven eyes and wavy mouth||symbols
+1F975|overheated face||symbols
+1F976|freezing face||symbols
+1F977|ninja||symbols
+1F978|disguised face||symbols
+1F979|face holding back tears||symbols
+1F97A|face with pleading eyes||symbols
+1F97B|sari||symbols
+1F97C|lab coat||symbols
+1F97D|goggles||symbols
+1F97E|hiking boot||symbols
+1F97F|flat shoe||symbols
+1FA80|yo yo||symbols
+1FA81|kite||symbols
+1FA82|parachute||symbols
+1FA83|boomerang||symbols
+1FA84|magic wand||symbols
+1FA85|pinata||symbols
+1FA86|nesting dolls||symbols
+1FA87|maracas||symbols
+1FA88|flute||symbols
+1FA90|ringed planet||symbols
+1FA91|chair||symbols
+1FA92|razor||symbols
+1FA93|axe||symbols
+1FA94|diya lamp||symbols
+1FA95|banjo||symbols
+1FA96|military helmet||symbols
+1FA97|accordion||symbols
+1FA98|long drum||symbols
+1FA99|coin||symbols
+1FA9A|carpentry saw||symbols
+1FA9B|screwdriver||symbols
+1FA9C|ladder||symbols
+1FA9D|hook||symbols
+1FA9E|mirror||symbols
+1FA9F|window||symbols
+1FAA0|plunger||symbols
+1FAA1|sewing needle||symbols
+1FAA2|knot||symbols
+1FAA3|bucket||symbols
+1FAA4|mouse trap||symbols
+1FAA5|toothbrush||symbols
+1FAA6|headstone||symbols
+1FAA7|placard||symbols
+1FAA8|rock||symbols
+1FAA9|mirror ball||symbols
+1FAAA|identification card||symbols
+1FAAB|low battery||symbols
+1FAAC|hamsa||symbols
+1FAAD|folding hand fan||symbols
+1FAAE|hair pick||symbols
+1FAAF|khanda||symbols
+1FAB0|fly||symbols
+1FAB1|worm||symbols
+1FAB2|beetle||symbols
+1FAB3|cockroach||symbols
+1FAB4|potted plant||symbols
+1FAB5|wood||symbols
+1FAB6|feather||symbols
+1FAB7|lotus||symbols
+1FAB8|coral||symbols
+1FAB9|empty nest||symbols
+1FABA|nest with eggs||symbols
+1FABB|hyacinth||symbols
+1FABC|jellyfish||symbols
+1FABD|wing||symbols
+1FABF|goose||symbols
+1FAC0|anatomical heart||symbols
+1FAC1|lungs||symbols
+1FAC2|people hugging||symbols
+1FAC3|pregnant man||symbols
+1FAC4|pregnant person||symbols
+1FAC5|person with crown||symbols
+1FACE|moose||symbols
+1FACF|donkey||symbols
+1FAF0|hand with index finger and thumb crossed||symbols
+1FAF1|rightwards hand||symbols
+1FAF2|leftwards hand||symbols
+1FAF3|palm down hand||symbols
+1FAF4|palm up hand||symbols
+1FAF5|index pointing at the viewer||symbols
+1FAF6|heart hands||symbols
+1FAF7|leftwards pushing hand||symbols
+1FAF8|rightwards pushing hand||symbols
+2700|black safety scissors||marks
+2701|upper blade scissors||marks
+2702|black scissors||marks
+2703|lower blade scissors||marks
+2704|white scissors||marks
+2705|white heavy check mark|green tick done yes|marks
+2706|telephone location sign||marks
+2707|tape drive||marks
+2708|airplane||marks
+2709|envelope||marks
+270A|raised fist||marks
+270B|raised hand||marks
+270C|victory hand||marks
+270D|writing hand||marks
+270E|lower right pencil||marks
+270F|pencil||marks
+2710|upper right pencil||marks
+2711|white nib||marks
+2712|black nib||marks
+2713|check mark|tick check checkmark yes done ok|marks
+2714|heavy check mark|tick check checkmark yes heavy|marks
+2715|multiplication x||marks
+2716|heavy multiplication x|x multiply clear close|marks
+2717|ballot x|cross x no wrong|marks
+2718|heavy ballot x|cross x no wrong heavy|marks
+2719|outlined greek cross||marks
+271A|heavy greek cross||marks
+271B|open centre cross||marks
+271C|heavy open centre cross||marks
+271D|latin cross||marks
+271E|shadowed white latin cross||marks
+271F|outlined latin cross||marks
+2720|maltese cross||marks
+2721|star of david||marks
+2722|four teardrop spoked asterisk||marks
+2723|four balloon spoked asterisk||marks
+2724|heavy four balloon spoked asterisk||marks
+2725|four club spoked asterisk||marks
+2726|black four pointed star||marks
+2727|white four pointed star||marks
+2728|sparkles||marks
+2729|stress outlined white star||marks
+272A|circled white star||marks
+272B|open centre black star||marks
+272C|black centre white star||marks
+272D|outlined black star||marks
+272E|heavy outlined black star||marks
+272F|pinwheel star||marks
+2730|shadowed white star||marks
+2731|heavy asterisk|asterisk star|marks
+2732|open centre asterisk||marks
+2733|eight spoked asterisk||marks
+2734|eight pointed black star||marks
+2735|eight pointed pinwheel star||marks
+2736|six pointed black star||marks
+2737|eight pointed rectilinear black star||marks
+2738|heavy eight pointed rectilinear black star||marks
+2739|twelve pointed black star||marks
+273A|sixteen pointed asterisk||marks
+273B|teardrop spoked asterisk||marks
+273C|open centre teardrop spoked asterisk||marks
+273D|heavy teardrop spoked asterisk||marks
+273E|six petalled black and white florette||marks
+273F|black florette||marks
+2740|white florette||marks
+2741|eight petalled outlined black florette||marks
+2742|circled open centre eight pointed star||marks
+2743|heavy teardrop spoked pinwheel asterisk||marks
+2744|snowflake||marks
+2745|tight trifoliate snowflake||marks
+2746|heavy chevron snowflake||marks
+2747|sparkle||marks
+2748|heavy sparkle||marks
+2749|balloon spoked asterisk||marks
+274A|eight teardrop spoked propeller asterisk||marks
+274B|heavy eight teardrop spoked propeller asterisk||marks
+274C|cross mark|red cross no wrong|marks
+274D|shadowed white circle||marks
+274E|negative squared cross mark||marks
+274F|lower right drop shadowed white square||marks
+2750|upper right drop shadowed white square||marks
+2751|lower right shadowed white square||marks
+2752|upper right shadowed white square||marks
+2753|black question mark ornament||marks
+2754|white question mark ornament||marks
+2755|white exclamation mark ornament||marks
+2756|black diamond minus white x||marks
+2757|heavy exclamation mark symbol||marks
+2758|light vertical bar||marks
+2759|medium vertical bar||marks
+275A|heavy vertical bar||marks
+275B|heavy single turned comma quotation mark ornament||marks
+275C|heavy single comma quotation mark ornament||marks
+275D|heavy double turned comma quotation mark ornament||marks
+275E|heavy double comma quotation mark ornament||marks
+275F|heavy low single comma quotation mark ornament||marks
+2760|heavy low double comma quotation mark ornament||marks
+2761|curved stem paragraph sign ornament||marks
+2762|heavy exclamation mark ornament||marks
+2763|heavy heart exclamation mark ornament||marks
+2764|heavy black heart|heart love|marks
+2765|rotated heavy black heart bullet||marks
+2766|floral heart||marks
+2767|rotated floral heart bullet||marks
+2768|medium left parenthesis ornament||marks
+2769|medium right parenthesis ornament||marks
+276A|medium flattened left parenthesis ornament||marks
+276B|medium flattened right parenthesis ornament||marks
+276C|medium left pointing angle bracket ornament||marks
+276D|medium right pointing angle bracket ornament||marks
+276E|heavy left pointing angle quotation mark ornament||marks
+276F|heavy right pointing angle quotation mark ornament||marks
+2770|heavy left pointing angle bracket ornament||marks
+2771|heavy right pointing angle bracket ornament||marks
+2772|light left tortoise shell bracket ornament||marks
+2773|light right tortoise shell bracket ornament||marks
+2774|medium left curly bracket ornament||marks
+2775|medium right curly bracket ornament||marks
+2776|dingbat negative circled digit one||marks
+2777|dingbat negative circled digit two||marks
+2778|dingbat negative circled digit three||marks
+2779|dingbat negative circled digit four||marks
+277A|dingbat negative circled digit five||marks
+277B|dingbat negative circled digit six||marks
+277C|dingbat negative circled digit seven||marks
+277D|dingbat negative circled digit eight||marks
+277E|dingbat negative circled digit nine||marks
+277F|dingbat negative circled number ten||marks
+2780|dingbat circled sans serif digit one||marks
+2781|dingbat circled sans serif digit two||marks
+2782|dingbat circled sans serif digit three||marks
+2783|dingbat circled sans serif digit four||marks
+2784|dingbat circled sans serif digit five||marks
+2785|dingbat circled sans serif digit six||marks
+2786|dingbat circled sans serif digit seven||marks
+2787|dingbat circled sans serif digit eight||marks
+2788|dingbat circled sans serif digit nine||marks
+2789|dingbat circled sans serif number ten||marks
+278A|dingbat negative circled sans serif digit one||marks
+278B|dingbat negative circled sans serif digit two||marks
+278C|dingbat negative circled sans serif digit three||marks
+278D|dingbat negative circled sans serif digit four||marks
+278E|dingbat negative circled sans serif digit five||marks
+278F|dingbat negative circled sans serif digit six||marks
+2790|dingbat negative circled sans serif digit seven||marks
+2791|dingbat negative circled sans serif digit eight||marks
+2792|dingbat negative circled sans serif digit nine||marks
+2793|dingbat negative circled sans serif number ten||marks
+2794|heavy wide headed rightwards arrow||marks
+2795|heavy plus sign||marks
+2796|heavy minus sign||marks
+2797|heavy division sign||marks
+2798|heavy south east arrow||marks
+2799|heavy rightwards arrow||marks
+279A|heavy north east arrow||marks
+279B|drafting point rightwards arrow||marks
+279C|heavy round tipped rightwards arrow||marks
+279D|triangle headed rightwards arrow||marks
+279E|heavy triangle headed rightwards arrow||marks
+279F|dashed triangle headed rightwards arrow||marks
+27A0|heavy dashed triangle headed rightwards arrow||marks
+27A1|black rightwards arrow|arrow right block|marks
+27A2|three d top lighted rightwards arrowhead||marks
+27A3|three d bottom lighted rightwards arrowhead||marks
+27A4|black rightwards arrowhead||marks
+27A5|heavy black curved downwards and rightwards arrow||marks
+27A6|heavy black curved upwards and rightwards arrow||marks
+27A7|squat black rightwards arrow||marks
+27A8|heavy concave pointed black rightwards arrow||marks
+27A9|right shaded white rightwards arrow||marks
+27AA|left shaded white rightwards arrow||marks
+27AB|back tilted shadowed white rightwards arrow||marks
+27AC|front tilted shadowed white rightwards arrow||marks
+27AD|heavy lower right shadowed white rightwards arrow||marks
+27AE|heavy upper right shadowed white rightwards arrow||marks
+27AF|notched lower right shadowed white rightwards arrow||marks
+27B0|curly loop||marks
+27B1|notched upper right shadowed white rightwards arrow||marks
+27B2|circled heavy white rightwards arrow||marks
+27B3|white feathered rightwards arrow||marks
+27B4|black feathered south east arrow||marks
+27B5|black feathered rightwards arrow||marks
+27B6|black feathered north east arrow||marks
+27B7|heavy black feathered south east arrow||marks
+27B8|heavy black feathered rightwards arrow||marks
+27B9|heavy black feathered north east arrow||marks
+27BA|teardrop barbed rightwards arrow||marks
+27BB|heavy teardrop shanked rightwards arrow||marks
+27BC|wedge tailed rightwards arrow||marks
+27BD|heavy wedge tailed rightwards arrow||marks
+27BE|open outlined rightwards arrow||marks
+27BF|double curly loop||marks
+2190|leftwards arrow|arrow left back previous|arrows
+2191|upwards arrow|arrow up|arrows
+2192|rightwards arrow|arrow right to next|arrows
+2193|downwards arrow|arrow down|arrows
+2194|left right arrow|arrow left right swap both|arrows
+2195|up down arrow||arrows
+2196|north west arrow||arrows
+2197|north east arrow||arrows
+2198|south east arrow||arrows
+2199|south west arrow||arrows
+219A|leftwards arrow with stroke||arrows
+219B|rightwards arrow with stroke||arrows
+219C|leftwards wave arrow||arrows
+219D|rightwards wave arrow||arrows
+219E|leftwards two headed arrow||arrows
+219F|upwards two headed arrow||arrows
+21A0|rightwards two headed arrow||arrows
+21A1|downwards two headed arrow||arrows
+21A2|leftwards arrow with tail||arrows
+21A3|rightwards arrow with tail||arrows
+21A4|leftwards arrow from bar||arrows
+21A5|upwards arrow from bar||arrows
+21A6|rightwards arrow from bar||arrows
+21A7|downwards arrow from bar||arrows
+21A8|up down arrow with base||arrows
+21A9|leftwards arrow with hook||arrows
+21AA|rightwards arrow with hook||arrows
+21AB|leftwards arrow with loop||arrows
+21AC|rightwards arrow with loop||arrows
+21AD|left right wave arrow||arrows
+21AE|left right arrow with stroke||arrows
+21AF|downwards zigzag arrow||arrows
+21B0|upwards arrow with tip leftwards||arrows
+21B1|upwards arrow with tip rightwards||arrows
+21B2|downwards arrow with tip leftwards||arrows
+21B3|downwards arrow with tip rightwards||arrows
+21B4|rightwards arrow with corner downwards||arrows
+21B5|downwards arrow with corner leftwards||arrows
+21B6|anticlockwise top semicircle arrow||arrows
+21B7|clockwise top semicircle arrow||arrows
+21B8|north west arrow to long bar||arrows
+21B9|leftwards arrow to bar over rightwards arrow to bar||arrows
+21BA|anticlockwise open circle arrow||arrows
+21BB|clockwise open circle arrow||arrows
+21BC|leftwards harpoon with barb upwards||arrows
+21BD|leftwards harpoon with barb downwards||arrows
+21BE|upwards harpoon with barb rightwards||arrows
+21BF|upwards harpoon with barb leftwards||arrows
+21C0|rightwards harpoon with barb upwards||arrows
+21C1|rightwards harpoon with barb downwards||arrows
+21C2|downwards harpoon with barb rightwards||arrows
+21C3|downwards harpoon with barb leftwards||arrows
+21C4|rightwards arrow over leftwards arrow||arrows
+21C5|upwards arrow leftwards of downwards arrow||arrows
+21C6|leftwards arrow over rightwards arrow||arrows
+21C7|leftwards paired arrows||arrows
+21C8|upwards paired arrows||arrows
+21C9|rightwards paired arrows||arrows
+21CA|downwards paired arrows||arrows
+21CB|leftwards harpoon over rightwards harpoon||arrows
+21CC|rightwards harpoon over leftwards harpoon||arrows
+21CD|leftwards double arrow with stroke||arrows
+21CE|left right double arrow with stroke||arrows
+21CF|rightwards double arrow with stroke||arrows
+21D0|leftwards double arrow||arrows
+21D1|upwards double arrow||arrows
+21D2|rightwards double arrow||arrows
+21D3|downwards double arrow||arrows
+21D4|left right double arrow||arrows
+21D5|up down double arrow||arrows
+21D6|north west double arrow||arrows
+21D7|north east double arrow||arrows
+21D8|south east double arrow||arrows
+21D9|south west double arrow||arrows
+21DA|leftwards triple arrow||arrows
+21DB|rightwards triple arrow||arrows
+21DC|leftwards squiggle arrow||arrows
+21DD|rightwards squiggle arrow||arrows
+21DE|upwards arrow with double stroke||arrows
+21DF|downwards arrow with double stroke||arrows
+21E0|leftwards dashed arrow||arrows
+21E1|upwards dashed arrow||arrows
+21E2|rightwards dashed arrow||arrows
+21E3|downwards dashed arrow||arrows
+21E4|leftwards arrow to bar||arrows
+21E5|rightwards arrow to bar||arrows
+21E6|leftwards white arrow||arrows
+21E7|upwards white arrow||arrows
+21E8|rightwards white arrow||arrows
+21E9|downwards white arrow||arrows
+21EA|upwards white arrow from bar||arrows
+21EB|upwards white arrow on pedestal||arrows
+21EC|upwards white arrow on pedestal with horizontal bar||arrows
+21ED|upwards white arrow on pedestal with vertical bar||arrows
+21EE|upwards white double arrow||arrows
+21EF|upwards white double arrow on pedestal||arrows
+21F0|rightwards white arrow from wall||arrows
+21F1|north west arrow to corner||arrows
+21F2|south east arrow to corner||arrows
+21F3|up down white arrow||arrows
+21F4|right arrow with small circle||arrows
+21F5|downwards arrow leftwards of upwards arrow||arrows
+21F6|three rightwards arrows||arrows
+21F7|leftwards arrow with vertical stroke||arrows
+21F8|rightwards arrow with vertical stroke||arrows
+21F9|left right arrow with vertical stroke||arrows
+21FA|leftwards arrow with double vertical stroke||arrows
+21FB|rightwards arrow with double vertical stroke||arrows
+21FC|left right arrow with double vertical stroke||arrows
+21FD|leftwards open headed arrow||arrows
+21FE|rightwards open headed arrow||arrows
+21FF|left right open headed arrow||arrows
+27F0|upwards quadruple arrow||arrows
+27F1|downwards quadruple arrow||arrows
+27F2|anticlockwise gapped circle arrow||arrows
+27F3|clockwise gapped circle arrow||arrows
+27F4|right arrow with circled plus||arrows
+27F5|long leftwards arrow||arrows
+27F6|long rightwards arrow||arrows
+27F7|long left right arrow||arrows
+27F8|long leftwards double arrow||arrows
+27F9|long rightwards double arrow||arrows
+27FA|long left right double arrow||arrows
+27FB|long leftwards arrow from bar||arrows
+27FC|long rightwards arrow from bar||arrows
+27FD|long leftwards double arrow from bar||arrows
+27FE|long rightwards double arrow from bar||arrows
+27FF|long rightwards squiggle arrow||arrows
+2906|leftwards double arrow from bar||arrows
+2907|rightwards double arrow from bar||arrows
+290A|upwards triple arrow||arrows
+290B|downwards triple arrow||arrows
+2921|north west and south east arrow||arrows
+2922|north east and south west arrow||arrows
+2934|arrow pointing rightwards then curving upwards||arrows
+2935|arrow pointing rightwards then curving downwards||arrows
+2940|anticlockwise closed circle arrow||arrows
+2941|clockwise closed circle arrow||arrows
+2B00|north east white arrow||arrows
+2B01|north west white arrow||arrows
+2B02|south east white arrow||arrows
+2B03|south west white arrow||arrows
+2B04|left right white arrow||arrows
+2B05|leftwards black arrow|arrow left block|arrows
+2B06|upwards black arrow|arrow up block|arrows
+2B07|downwards black arrow|arrow down block|arrows
+2B08|north east black arrow||arrows
+2B09|north west black arrow||arrows
+2B0A|south east black arrow||arrows
+2B0B|south west black arrow||arrows
+2B0C|left right black arrow||arrows
+2B0D|up down black arrow||arrows
+2B0E|rightwards arrow with tip downwards||arrows
+2B0F|rightwards arrow with tip upwards||arrows
+2B10|leftwards arrow with tip downwards||arrows
+2B11|leftwards arrow with tip upwards||arrows
+2B12|square with top half black||arrows
+2B13|square with bottom half black||arrows
+2B14|square with upper right diagonal half black||arrows
+2B15|square with lower left diagonal half black||arrows
+2B16|diamond with left half black||arrows
+2B17|diamond with right half black||arrows
+2B18|diamond with top half black||arrows
+2B19|diamond with bottom half black||arrows
+2B1A|dotted square||arrows
+2B1B|black large square||arrows
+2B1C|white large square||arrows
+2B1D|black very small square||arrows
+2B1E|white very small square||arrows
+2B1F|black pentagon||arrows
+2B20|white pentagon||arrows
+2B21|white hexagon||arrows
+2B22|black hexagon||arrows
+2B23|horizontal black hexagon||arrows
+2B24|black large circle||arrows
+2B25|black medium diamond||arrows
+2B26|white medium diamond||arrows
+2B27|black medium lozenge||arrows
+2B28|white medium lozenge||arrows
+2B29|black small diamond||arrows
+2B2A|black small lozenge||arrows
+2B2B|white small lozenge||arrows
+2B2C|black horizontal ellipse||arrows
+2B2D|white horizontal ellipse||arrows
+2B2E|black vertical ellipse||arrows
+2B2F|white vertical ellipse||arrows
+2B4D|downwards triangle headed zigzag arrow||arrows
+2B4E|short slanted north arrow||arrows
+2B4F|short backslanted south arrow||arrows
+2B50|white medium star|star gold rating|arrows
+2B51|black small star||arrows
+2B52|white small star||arrows
+2B53|black right pointing pentagon||arrows
+2B54|white right pointing pentagon||arrows
+2B55|heavy large circle||arrows
+2B56|heavy oval with oval inside||arrows
+2B57|heavy circle with circle inside||arrows
+2B58|heavy circle||arrows
+2B59|heavy circled saltire||arrows
+2B5A|slanted north arrow with hooked head||arrows
+2B5B|backslanted south arrow with hooked tail||arrows
+2B5C|slanted north arrow with horizontal tail||arrows
+2B5D|backslanted south arrow with horizontal tail||arrows
+2B5E|bent arrow pointing downwards then north east||arrows
+2B5F|short bent arrow pointing downwards then north east||arrows
+2B60|leftwards triangle headed arrow||arrows
+2B61|upwards triangle headed arrow||arrows
+2B62|rightwards triangle headed arrow||arrows
+2B63|downwards triangle headed arrow||arrows
+2B64|left right triangle headed arrow||arrows
+2B65|up down triangle headed arrow||arrows
+2B66|north west triangle headed arrow||arrows
+2B67|north east triangle headed arrow||arrows
+2B68|south east triangle headed arrow||arrows
+2B69|south west triangle headed arrow||arrows
+2B6A|leftwards triangle headed dashed arrow||arrows
+2B6B|upwards triangle headed dashed arrow||arrows
+2B6C|rightwards triangle headed dashed arrow||arrows
+2B6D|downwards triangle headed dashed arrow||arrows
+2B6E|clockwise triangle headed open circle arrow||arrows
+2B6F|anticlockwise triangle headed open circle arrow||arrows
+2B70|leftwards triangle headed arrow to bar||arrows
+2B71|upwards triangle headed arrow to bar||arrows
+2B72|rightwards triangle headed arrow to bar||arrows
+2B73|downwards triangle headed arrow to bar||arrows
+2B76|north west triangle headed arrow to bar||arrows
+2B77|north east triangle headed arrow to bar||arrows
+2B78|south east triangle headed arrow to bar||arrows
+2B79|south west triangle headed arrow to bar||arrows
+2B7A|leftwards triangle headed arrow with double horizontal stroke||arrows
+2B7B|upwards triangle headed arrow with double horizontal stroke||arrows
+2B7C|rightwards triangle headed arrow with double horizontal stroke||arrows
+2B7D|downwards triangle headed arrow with double horizontal stroke||arrows
+2B7E|horizontal tab key||arrows
+2B7F|vertical tab key||arrows
+2B80|leftwards triangle headed arrow over rightwards triangle headed arrow||arrows
+2B81|upwards triangle headed arrow leftwards of downwards triangle headed arrow||arrows
+2B82|rightwards triangle headed arrow over leftwards triangle headed arrow||arrows
+2B83|downwards triangle headed arrow leftwards of upwards triangle headed arrow||arrows
+2B84|leftwards triangle headed paired arrows||arrows
+2B85|upwards triangle headed paired arrows||arrows
+2B86|rightwards triangle headed paired arrows||arrows
+2B87|downwards triangle headed paired arrows||arrows
+2B88|leftwards black circled white arrow||arrows
+2B89|upwards black circled white arrow||arrows
+2B8A|rightwards black circled white arrow||arrows
+2B8B|downwards black circled white arrow||arrows
+2B8C|anticlockwise triangle headed right u shaped arrow||arrows
+2B8D|anticlockwise triangle headed bottom u shaped arrow||arrows
+2B8E|anticlockwise triangle headed left u shaped arrow||arrows
+2B8F|anticlockwise triangle headed top u shaped arrow||arrows
+2B90|return left||arrows
+2B91|return right||arrows
+2B92|newline left||arrows
+2B93|newline right||arrows
+2B94|four corner arrows circling anticlockwise||arrows
+2B95|rightwards black arrow||arrows
+2B97|symbol for type a electronics||arrows
+2B98|three d top lighted leftwards equilateral arrowhead||arrows
+2B99|three d right lighted upwards equilateral arrowhead||arrows
+2B9A|three d top lighted rightwards equilateral arrowhead||arrows
+2B9B|three d left lighted downwards equilateral arrowhead||arrows
+2B9C|black leftwards equilateral arrowhead||arrows
+2B9D|black upwards equilateral arrowhead||arrows
+2B9E|black rightwards equilateral arrowhead||arrows
+2B9F|black downwards equilateral arrowhead||arrows
+2BA0|downwards triangle headed arrow with long tip leftwards||arrows
+2BA1|downwards triangle headed arrow with long tip rightwards||arrows
+2BA2|upwards triangle headed arrow with long tip leftwards||arrows
+2BA3|upwards triangle headed arrow with long tip rightwards||arrows
+2BA4|leftwards triangle headed arrow with long tip upwards||arrows
+2BA5|rightwards triangle headed arrow with long tip upwards||arrows
+2BA6|leftwards triangle headed arrow with long tip downwards||arrows
+2BA7|rightwards triangle headed arrow with long tip downwards||arrows
+2BA8|black curved downwards and leftwards arrow||arrows
+2BA9|black curved downwards and rightwards arrow||arrows
+2BAA|black curved upwards and leftwards arrow||arrows
+2BAB|black curved upwards and rightwards arrow||arrows
+2BAC|black curved leftwards and upwards arrow||arrows
+2BAD|black curved rightwards and upwards arrow||arrows
+2BAE|black curved leftwards and downwards arrow||arrows
+2BAF|black curved rightwards and downwards arrow||arrows
+2BB0|ribbon arrow down left||arrows
+2BB1|ribbon arrow down right||arrows
+2BB2|ribbon arrow up left||arrows
+2BB3|ribbon arrow up right||arrows
+2BB4|ribbon arrow left up||arrows
+2BB5|ribbon arrow right up||arrows
+2BB6|ribbon arrow left down||arrows
+2BB7|ribbon arrow right down||arrows
+2BB8|upwards white arrow from bar with horizontal bar||arrows
+2BB9|up arrowhead in a rectangle box||arrows
+2BBA|overlapping white squares||arrows
+2BBB|overlapping white and black squares||arrows
+2BBC|overlapping black squares||arrows
+2BBD|ballot box with light x||arrows
+2BBE|circled x||arrows
+2BBF|circled bold x||arrows
+2BC0|black square centred||arrows
+2BC1|black diamond centred||arrows
+2BC2|turned black pentagon||arrows
+2BC3|horizontal black octagon||arrows
+2BC4|black octagon||arrows
+2BC5|black medium up pointing triangle centred||arrows
+2BC6|black medium down pointing triangle centred||arrows
+2BC7|black medium left pointing triangle centred||arrows
+2BC8|black medium right pointing triangle centred||arrows
+2BC9|neptune form two||arrows
+2BCA|top half black circle||arrows
+2BCB|bottom half black circle||arrows
+2BCC|light four pointed black cusp||arrows
+2BCD|rotated light four pointed black cusp||arrows
+2BCE|white four pointed cusp||arrows
+2BCF|rotated white four pointed cusp||arrows
+2BD0|square position indicator||arrows
+2BD1|uncertainty sign||arrows
+2BD2|group mark||arrows
+2BD3|pluto form two||arrows
+2BD4|pluto form three||arrows
+2BD5|pluto form four||arrows
+2BD6|pluto form five||arrows
+2BD7|transpluto||arrows
+2BD8|proserpina||arrows
+2BD9|astraea||arrows
+2BDA|hygiea||arrows
+2BDB|pholus||arrows
+2BDC|nessus||arrows
+2BDD|white moon selena||arrows
+2BDE|black diamond on cross||arrows
+2BDF|true light moon arta||arrows
+2BE0|cupido||arrows
+2BE1|hades||arrows
+2BE2|zeus||arrows
+2BE3|kronos||arrows
+2BE4|apollon||arrows
+2BE5|admetos||arrows
+2BE6|vulcanus||arrows
+2BE7|poseidon||arrows
+2BE8|left half black star||arrows
+2BE9|right half black star||arrows
+2BEA|star with left half black||arrows
+2BEB|star with right half black||arrows
+2BEC|leftwards two headed arrow with triangle arrowheads||arrows
+2BED|upwards two headed arrow with triangle arrowheads||arrows
+2BEE|rightwards two headed arrow with triangle arrowheads||arrows
+2BEF|downwards two headed arrow with triangle arrowheads||arrows
+2BF0|eris form one||arrows
+2BF1|eris form two||arrows
+2BF2|sedna||arrows
+2BF3|russian astrological symbol vigintile||arrows
+2BF4|russian astrological symbol novile||arrows
+2BF5|russian astrological symbol quintile||arrows
+2BF6|russian astrological symbol binovile||arrows
+2BF7|russian astrological symbol sentagon||arrows
+2BF8|russian astrological symbol tredecile||arrows
+2BF9|equals sign with infinity below||arrows
+2BFA|united symbol||arrows
+2BFB|separated symbol||arrows
+2BFC|doubled symbol||arrows
+2BFD|passed symbol||arrows
+2BFF|hellschreiber pause symbol||arrows
+2200|for all||maths
+2201|complement||maths
+2202|partial differential||maths
+2203|there exists||maths
+2204|there does not exist||maths
+2205|empty set||maths
+2206|increment||maths
+2207|nabla||maths
+2208|element of||maths
+2209|not an element of||maths
+220A|small element of||maths
+220B|contains as member||maths
+220C|does not contain as member||maths
+220D|small contains as member||maths
+220E|end of proof||maths
+220F|n ary product||maths
+2210|n ary coproduct||maths
+2211|n ary summation||maths
+2212|minus sign||maths
+2213|minus or plus sign||maths
+2214|dot plus||maths
+2215|division slash||maths
+2216|set minus||maths
+2217|asterisk operator||maths
+2218|ring operator||maths
+2219|bullet operator||maths
+221A|square root||maths
+221B|cube root||maths
+221C|fourth root||maths
+221D|proportional to||maths
+221E|infinity|infinity|maths
+221F|right angle||maths
+2220|angle||maths
+2221|measured angle||maths
+2222|spherical angle||maths
+2223|divides||maths
+2224|does not divide||maths
+2225|parallel to||maths
+2226|not parallel to||maths
+2227|logical and||maths
+2228|logical or||maths
+2229|intersection||maths
+222A|union||maths
+222B|integral||maths
+222C|double integral||maths
+222D|triple integral||maths
+222E|contour integral||maths
+222F|surface integral||maths
+2230|volume integral||maths
+2231|clockwise integral||maths
+2232|clockwise contour integral||maths
+2233|anticlockwise contour integral||maths
+2234|therefore||maths
+2235|because||maths
+2236|ratio||maths
+2237|proportion||maths
+2238|dot minus||maths
+2239|excess||maths
+223A|geometric proportion||maths
+223B|homothetic||maths
+223C|tilde operator||maths
+223D|reversed tilde||maths
+223E|inverted lazy s||maths
+223F|sine wave||maths
+2240|wreath product||maths
+2241|not tilde||maths
+2242|minus tilde||maths
+2243|asymptotically equal to||maths
+2244|not asymptotically equal to||maths
+2245|approximately equal to||maths
+2246|approximately but not actually equal to||maths
+2247|neither approximately nor actually equal to||maths
+2248|almost equal to|approx about|maths
+2249|not almost equal to||maths
+224A|almost equal or equal to||maths
+224B|triple tilde||maths
+224C|all equal to||maths
+224D|equivalent to||maths
+224E|geometrically equivalent to||maths
+224F|difference between||maths
+2250|approaches the limit||maths
+2251|geometrically equal to||maths
+2252|approximately equal to or the image of||maths
+2253|image of or approximately equal to||maths
+2254|colon equals||maths
+2255|equals colon||maths
+2256|ring in equal to||maths
+2257|ring equal to||maths
+2258|corresponds to||maths
+2259|estimates||maths
+225A|equiangular to||maths
+225B|star equals||maths
+225C|delta equal to||maths
+225D|equal to by definition||maths
+225E|measured by||maths
+225F|questioned equal to||maths
+2260|not equal to|not equal|maths
+2261|identical to||maths
+2262|not identical to||maths
+2263|strictly equivalent to||maths
+2264|less than or equal to|less or equal|maths
+2265|greater than or equal to|greater or equal|maths
+2266|less than over equal to||maths
+2267|greater than over equal to||maths
+2268|less than but not equal to||maths
+2269|greater than but not equal to||maths
+226A|much less than||maths
+226B|much greater than||maths
+226C|between||maths
+226D|not equivalent to||maths
+226E|not less than||maths
+226F|not greater than||maths
+2270|neither less than nor equal to||maths
+2271|neither greater than nor equal to||maths
+2272|less than or equivalent to||maths
+2273|greater than or equivalent to||maths
+2274|neither less than nor equivalent to||maths
+2275|neither greater than nor equivalent to||maths
+2276|less than or greater than||maths
+2277|greater than or less than||maths
+2278|neither less than nor greater than||maths
+2279|neither greater than nor less than||maths
+227A|precedes||maths
+227B|succeeds||maths
+227C|precedes or equal to||maths
+227D|succeeds or equal to||maths
+227E|precedes or equivalent to||maths
+227F|succeeds or equivalent to||maths
+2280|does not precede||maths
+2281|does not succeed||maths
+2282|subset of||maths
+2283|superset of||maths
+2284|not a subset of||maths
+2285|not a superset of||maths
+2286|subset of or equal to||maths
+2287|superset of or equal to||maths
+2288|neither a subset of nor equal to||maths
+2289|neither a superset of nor equal to||maths
+228A|subset of with not equal to||maths
+228B|superset of with not equal to||maths
+228C|multiset||maths
+228D|multiset multiplication||maths
+228E|multiset union||maths
+228F|square image of||maths
+2290|square original of||maths
+2291|square image of or equal to||maths
+2292|square original of or equal to||maths
+2293|square cap||maths
+2294|square cup||maths
+2295|circled plus||maths
+2296|circled minus||maths
+2297|circled times||maths
+2298|circled division slash||maths
+2299|circled dot operator||maths
+229A|circled ring operator||maths
+229B|circled asterisk operator||maths
+229C|circled equals||maths
+229D|circled dash||maths
+229E|squared plus||maths
+229F|squared minus||maths
+22A0|squared times||maths
+22A1|squared dot operator||maths
+22A2|right tack||maths
+22A3|left tack||maths
+22A4|down tack||maths
+22A5|up tack||maths
+22A6|assertion||maths
+22A7|models||maths
+22A8|true||maths
+22A9|forces||maths
+22AA|triple vertical bar right turnstile||maths
+22AB|double vertical bar double right turnstile||maths
+22AC|does not prove||maths
+22AD|not true||maths
+22AE|does not force||maths
+22AF|negated double vertical bar double right turnstile||maths
+22B0|precedes under relation||maths
+22B1|succeeds under relation||maths
+22B2|normal subgroup of||maths
+22B3|contains as normal subgroup||maths
+22B4|normal subgroup of or equal to||maths
+22B5|contains as normal subgroup or equal to||maths
+22B6|original of||maths
+22B7|image of||maths
+22B8|multimap||maths
+22B9|hermitian conjugate matrix||maths
+22BA|intercalate||maths
+22BB|xor||maths
+22BC|nand||maths
+22BD|nor||maths
+22BE|right angle with arc||maths
+22BF|right triangle||maths
+22C0|n ary logical and||maths
+22C1|n ary logical or||maths
+22C2|n ary intersection||maths
+22C3|n ary union||maths
+22C4|diamond operator||maths
+22C5|dot operator||maths
+22C6|star operator||maths
+22C7|division times||maths
+22C8|bowtie||maths
+22C9|left normal factor semidirect product||maths
+22CA|right normal factor semidirect product||maths
+22CB|left semidirect product||maths
+22CC|right semidirect product||maths
+22CD|reversed tilde equals||maths
+22CE|curly logical or||maths
+22CF|curly logical and||maths
+22D0|double subset||maths
+22D1|double superset||maths
+22D2|double intersection||maths
+22D3|double union||maths
+22D4|pitchfork||maths
+22D5|equal and parallel to||maths
+22D6|less than with dot||maths
+22D7|greater than with dot||maths
+22D8|very much less than||maths
+22D9|very much greater than||maths
+22DA|less than equal to or greater than||maths
+22DB|greater than equal to or less than||maths
+22DC|equal to or less than||maths
+22DD|equal to or greater than||maths
+22DE|equal to or precedes||maths
+22DF|equal to or succeeds||maths
+22E0|does not precede or equal||maths
+22E1|does not succeed or equal||maths
+22E2|not square image of or equal to||maths
+22E3|not square original of or equal to||maths
+22E4|square image of or not equal to||maths
+22E5|square original of or not equal to||maths
+22E6|less than but not equivalent to||maths
+22E7|greater than but not equivalent to||maths
+22E8|precedes but not equivalent to||maths
+22E9|succeeds but not equivalent to||maths
+22EA|not normal subgroup of||maths
+22EB|does not contain as normal subgroup||maths
+22EC|not normal subgroup of or equal to||maths
+22ED|does not contain as normal subgroup or equal||maths
+22EE|vertical ellipsis||maths
+22EF|midline horizontal ellipsis||maths
+22F0|up right diagonal ellipsis||maths
+22F1|down right diagonal ellipsis||maths
+22F2|element of with long horizontal stroke||maths
+22F3|element of with vertical bar at end of horizontal stroke||maths
+22F4|small element of with vertical bar at end of horizontal stroke||maths
+22F5|element of with dot above||maths
+22F6|element of with overbar||maths
+22F7|small element of with overbar||maths
+22F8|element of with underbar||maths
+22F9|element of with two horizontal strokes||maths
+22FA|contains with long horizontal stroke||maths
+22FB|contains with vertical bar at end of horizontal stroke||maths
+22FC|small contains with vertical bar at end of horizontal stroke||maths
+22FD|contains with overbar||maths
+22FE|small contains with overbar||maths
+22FF|z notation bag membership||maths
+2A00|n ary circled dot operator||maths
+2A01|n ary circled plus operator||maths
+2A02|n ary circled times operator||maths
+2A0C|quadruple integral operator||maths
+2A0D|finite part integral||maths
+2A0E|integral with double stroke||maths
+2A0F|integral average with slash||maths
+2A10|circulation function||maths
+2A11|anticlockwise integration||maths
+2A12|line integration with rectangular path around pole||maths
+2A13|line integration with semicircular path around pole||maths
+2A14|line integration not including the pole||maths
+2A15|integral around a point operator||maths
+2A16|quaternion integral operator||maths
+2A17|integral with leftwards arrow with hook||maths
+2A18|integral with times sign||maths
+2A19|integral with intersection||maths
+2A1A|integral with union||maths
+2A1B|integral with overbar||maths
+2A1C|integral with underbar||maths
+2A2F|vector or cross product||maths
+2A6A|tilde operator with dot above||maths
+2A6B|tilde operator with rising dots||maths
+2A7D|less than or slanted equal to||maths
+2A7E|greater than or slanted equal to||maths
+2A7F|less than or slanted equal to with dot inside||maths
+2A80|greater than or slanted equal to with dot inside||maths
+2A81|less than or slanted equal to with dot above||maths
+2A82|greater than or slanted equal to with dot above||maths
+2A83|less than or slanted equal to with dot above right||maths
+2A84|greater than or slanted equal to with dot above left||maths
+2A85|less than or approximate||maths
+2A86|greater than or approximate||maths
+2A87|less than and single line not equal to||maths
+2A88|greater than and single line not equal to||maths
+2A89|less than and not approximate||maths
+2A8A|greater than and not approximate||maths
+2A8B|less than above double line equal above greater than||maths
+2A8C|greater than above double line equal above less than||maths
+2A8D|less than above similar or equal||maths
+2A8E|greater than above similar or equal||maths
+2A8F|less than above similar above greater than||maths
+2A90|greater than above similar above less than||maths
+2A91|less than above greater than above double line equal||maths
+2A92|greater than above less than above double line equal||maths
+2A93|less than above slanted equal above greater than above slanted equal||maths
+2A94|greater than above slanted equal above less than above slanted equal||maths
+2A95|slanted equal to or less than||maths
+2A96|slanted equal to or greater than||maths
+2A97|slanted equal to or less than with dot inside||maths
+2A98|slanted equal to or greater than with dot inside||maths
+2A99|double line equal to or less than||maths
+2A9A|double line equal to or greater than||maths
+2A9B|double line slanted equal to or less than||maths
+2A9C|double line slanted equal to or greater than||maths
+2A9D|similar or less than||maths
+2A9E|similar or greater than||maths
+2A9F|similar above less than above equals sign||maths
+2AA0|similar above greater than above equals sign||maths
+2AAE|equals sign with bumpy above||maths
+2AAF|precedes above single line equals sign||maths
+2AB0|succeeds above single line equals sign||maths
+2AB1|precedes above single line not equal to||maths
+2AB2|succeeds above single line not equal to||maths
+2AB3|precedes above equals sign||maths
+2AB4|succeeds above equals sign||maths
+2AB5|precedes above not equal to||maths
+2AB6|succeeds above not equal to||maths
+2AB7|precedes above almost equal to||maths
+2AB8|succeeds above almost equal to||maths
+2AB9|precedes above not almost equal to||maths
+2ABA|succeeds above not almost equal to||maths
+2AF9|double line slanted less than or equal to||maths
+2AFA|double line slanted greater than or equal to||maths
+25A0|black square||shapes
+25A1|white square||shapes
+25A2|white square with rounded corners||shapes
+25A3|white square containing black small square||shapes
+25A4|square with horizontal fill||shapes
+25A5|square with vertical fill||shapes
+25A6|square with orthogonal crosshatch fill||shapes
+25A7|square with upper left to lower right fill||shapes
+25A8|square with upper right to lower left fill||shapes
+25A9|square with diagonal crosshatch fill||shapes
+25AA|black small square||shapes
+25AB|white small square||shapes
+25AC|black rectangle||shapes
+25AD|white rectangle||shapes
+25AE|black vertical rectangle||shapes
+25AF|white vertical rectangle||shapes
+25B0|black parallelogram||shapes
+25B1|white parallelogram||shapes
+25B2|black up pointing triangle||shapes
+25B3|white up pointing triangle||shapes
+25B4|black up pointing small triangle||shapes
+25B5|white up pointing small triangle||shapes
+25B6|black right pointing triangle||shapes
+25B7|white right pointing triangle||shapes
+25B8|black right pointing small triangle||shapes
+25B9|white right pointing small triangle||shapes
+25BA|black right pointing pointer||shapes
+25BB|white right pointing pointer||shapes
+25BC|black down pointing triangle||shapes
+25BD|white down pointing triangle||shapes
+25BE|black down pointing small triangle||shapes
+25BF|white down pointing small triangle||shapes
+25C0|black left pointing triangle||shapes
+25C1|white left pointing triangle||shapes
+25C2|black left pointing small triangle||shapes
+25C3|white left pointing small triangle||shapes
+25C4|black left pointing pointer||shapes
+25C5|white left pointing pointer||shapes
+25C6|black diamond||shapes
+25C7|white diamond||shapes
+25C8|white diamond containing black small diamond||shapes
+25C9|fisheye||shapes
+25CA|lozenge||shapes
+25CB|white circle||shapes
+25CC|dotted circle||shapes
+25CD|circle with vertical fill||shapes
+25CE|bullseye||shapes
+25CF|black circle||shapes
+25D0|circle with left half black||shapes
+25D1|circle with right half black||shapes
+25D2|circle with lower half black||shapes
+25D3|circle with upper half black||shapes
+25D4|circle with upper right quadrant black||shapes
+25D5|circle with all but upper left quadrant black||shapes
+25D6|left half black circle||shapes
+25D7|right half black circle||shapes
+25D8|inverse bullet||shapes
+25D9|inverse white circle||shapes
+25DA|upper half inverse white circle||shapes
+25DB|lower half inverse white circle||shapes
+25DC|upper left quadrant circular arc||shapes
+25DD|upper right quadrant circular arc||shapes
+25DE|lower right quadrant circular arc||shapes
+25DF|lower left quadrant circular arc||shapes
+25E0|upper half circle||shapes
+25E1|lower half circle||shapes
+25E2|black lower right triangle||shapes
+25E3|black lower left triangle||shapes
+25E4|black upper left triangle||shapes
+25E5|black upper right triangle||shapes
+25E6|white bullet||shapes
+25E7|square with left half black||shapes
+25E8|square with right half black||shapes
+25E9|square with upper left diagonal half black||shapes
+25EA|square with lower right diagonal half black||shapes
+25EB|white square with vertical bisecting line||shapes
+25EC|white up pointing triangle with dot||shapes
+25ED|up pointing triangle with left half black||shapes
+25EE|up pointing triangle with right half black||shapes
+25EF|large circle||shapes
+25F0|white square with upper left quadrant||shapes
+25F1|white square with lower left quadrant||shapes
+25F2|white square with lower right quadrant||shapes
+25F3|white square with upper right quadrant||shapes
+25F4|white circle with upper left quadrant||shapes
+25F5|white circle with lower left quadrant||shapes
+25F6|white circle with lower right quadrant||shapes
+25F7|white circle with upper right quadrant||shapes
+25F8|upper left triangle||shapes
+25F9|upper right triangle||shapes
+25FA|lower left triangle||shapes
+25FB|white medium square||shapes
+25FC|black medium square||shapes
+25FD|white medium small square||shapes
+25FE|black medium small square||shapes
+25FF|lower right triangle||shapes
+1F780|black left pointing isosceles right triangle||shapes
+1F781|black up pointing isosceles right triangle||shapes
+1F782|black right pointing isosceles right triangle||shapes
+1F783|black down pointing isosceles right triangle||shapes
+1F784|black slightly small circle||shapes
+1F785|medium bold white circle||shapes
+1F786|bold white circle||shapes
+1F787|heavy white circle||shapes
+1F788|very heavy white circle||shapes
+1F789|extremely heavy white circle||shapes
+1F78A|white circle containing black small circle||shapes
+1F78B|round target||shapes
+1F78C|black tiny square||shapes
+1F78D|black slightly small square||shapes
+1F78E|light white square||shapes
+1F78F|medium white square||shapes
+1F790|bold white square||shapes
+1F791|heavy white square||shapes
+1F792|very heavy white square||shapes
+1F793|extremely heavy white square||shapes
+1F794|white square containing black very small square||shapes
+1F795|white square containing black medium square||shapes
+1F796|square target||shapes
+1F797|black tiny diamond||shapes
+1F798|black very small diamond||shapes
+1F799|black medium small diamond||shapes
+1F79A|white diamond containing black very small diamond||shapes
+1F79B|white diamond containing black medium diamond||shapes
+1F79C|diamond target||shapes
+1F79D|black tiny lozenge||shapes
+1F79E|black very small lozenge||shapes
+1F79F|black medium small lozenge||shapes
+1F7A0|white lozenge containing black small lozenge||shapes
+1F7A1|thin greek cross||shapes
+1F7A2|light greek cross||shapes
+1F7A3|medium greek cross||shapes
+1F7A4|bold greek cross||shapes
+1F7A5|very bold greek cross||shapes
+1F7A6|very heavy greek cross||shapes
+1F7A7|extremely heavy greek cross||shapes
+1F7A8|thin saltire||shapes
+1F7A9|light saltire||shapes
+1F7AA|medium saltire||shapes
+1F7AB|bold saltire||shapes
+1F7AC|heavy saltire||shapes
+1F7AD|very heavy saltire||shapes
+1F7AE|extremely heavy saltire||shapes
+1F7AF|light five spoked asterisk||shapes
+1F7B0|medium five spoked asterisk||shapes
+1F7B1|bold five spoked asterisk||shapes
+1F7B2|heavy five spoked asterisk||shapes
+1F7B3|very heavy five spoked asterisk||shapes
+1F7B4|extremely heavy five spoked asterisk||shapes
+1F7B5|light six spoked asterisk||shapes
+1F7B6|medium six spoked asterisk||shapes
+1F7B7|bold six spoked asterisk||shapes
+1F7B8|heavy six spoked asterisk||shapes
+1F7B9|very heavy six spoked asterisk||shapes
+1F7BA|extremely heavy six spoked asterisk||shapes
+1F7BB|light eight spoked asterisk||shapes
+1F7BC|medium eight spoked asterisk||shapes
+1F7BD|bold eight spoked asterisk||shapes
+1F7BE|heavy eight spoked asterisk||shapes
+1F7BF|very heavy eight spoked asterisk||shapes
+1F7C0|light three pointed black star||shapes
+1F7C1|medium three pointed black star||shapes
+1F7C2|three pointed black star||shapes
+1F7C3|medium three pointed pinwheel star||shapes
+1F7C4|light four pointed black star||shapes
+1F7C5|medium four pointed black star||shapes
+1F7C6|four pointed black star||shapes
+1F7C7|medium four pointed pinwheel star||shapes
+1F7C8|reverse light four pointed pinwheel star||shapes
+1F7C9|light five pointed black star||shapes
+1F7CA|heavy five pointed black star||shapes
+1F7CB|medium six pointed black star||shapes
+1F7CC|heavy six pointed black star||shapes
+1F7CD|six pointed pinwheel star||shapes
+1F7CE|medium eight pointed black star||shapes
+1F7CF|heavy eight pointed black star||shapes
+1F7D0|very heavy eight pointed black star||shapes
+1F7D1|heavy eight pointed pinwheel star||shapes
+1F7D2|light twelve pointed black star||shapes
+1F7D3|heavy twelve pointed black star||shapes
+1F7D4|heavy twelve pointed pinwheel star||shapes
+1F7D5|circled triangle||shapes
+1F7D6|negative circled triangle||shapes
+1F7D7|circled square||shapes
+1F7D8|negative circled square||shapes
+1F7D9|nine pointed white star||shapes
+1F7E0|large orange circle||shapes
+1F7E1|large yellow circle||shapes
+1F7E2|large green circle||shapes
+1F7E3|large purple circle||shapes
+1F7E4|large brown circle||shapes
+1F7E5|large red square||shapes
+1F7E6|large blue square||shapes
+1F7E7|large orange square||shapes
+1F7E8|large yellow square||shapes
+1F7E9|large green square||shapes
+1F7EA|large purple square||shapes
+1F7EB|large brown square||shapes
+1F7F0|heavy equals sign||shapes
+2100|account of||technical
+2101|addressed to the subject||technical
+2102|double struck capital c||technical
+2103|degree celsius||technical
+2104|centre line symbol||technical
+2105|care of||technical
+2106|cada una||technical
+2107|euler constant||technical
+2108|scruple||technical
+2109|degree fahrenheit||technical
+210B|script capital h||technical
+210C|black letter capital h||technical
+210D|double struck capital h||technical
+210E|planck constant||technical
+210F|planck constant over two pi||technical
+2110|script capital i||technical
+2111|black letter capital i||technical
+2112|script capital l||technical
+2113|script small l||technical
+2114|l b bar symbol||technical
+2115|double struck capital n||technical
+2116|numero sign|numero number|technical
+2117|sound recording copyright||technical
+2118|script capital p||technical
+2119|double struck capital p||technical
+211A|double struck capital q||technical
+211B|script capital r||technical
+211C|black letter capital r||technical
+211D|double struck capital r||technical
+211E|prescription take||technical
+211F|response||technical
+2120|service mark||technical
+2121|telephone sign||technical
+2122|trade mark sign|trademark tm|technical
+2123|versicle||technical
+2124|double struck capital z||technical
+2125|ounce sign||technical
+2126|ohm sign||technical
+2127|inverted ohm sign||technical
+2128|black letter capital z||technical
+2129|turned greek small letter iota||technical
+212A|kelvin sign||technical
+212B|angstrom sign||technical
+212C|script capital b||technical
+212D|black letter capital c||technical
+212E|estimated symbol||technical
+212F|script small e||technical
+2130|script capital e||technical
+2131|script capital f||technical
+2132|turned capital f||technical
+2133|script capital m||technical
+2134|script small o||technical
+2135|alef symbol||technical
+2136|bet symbol||technical
+2137|gimel symbol||technical
+2138|dalet symbol||technical
+2139|information source||technical
+213A|rotated capital q||technical
+213B|facsimile sign||technical
+213C|double struck small pi||technical
+213D|double struck small gamma||technical
+213E|double struck capital gamma||technical
+213F|double struck capital pi||technical
+2140|double struck n ary summation||technical
+2141|turned sans serif capital g||technical
+2142|turned sans serif capital l||technical
+2143|reversed sans serif capital l||technical
+2144|turned sans serif capital y||technical
+2145|double struck italic capital d||technical
+2146|double struck italic small d||technical
+2147|double struck italic small e||technical
+2148|double struck italic small i||technical
+2149|double struck italic small j||technical
+214B|turned ampersand||technical
+214E|turned small f||technical
+2300|diameter sign||technical
+2301|electric arrow||technical
+2302|house||technical
+2303|up arrowhead||technical
+2304|down arrowhead||technical
+2305|projective||technical
+2306|perspective||technical
+2307|wavy line||technical
+2308|left ceiling||technical
+2309|right ceiling||technical
+230A|left floor||technical
+230B|right floor||technical
+230C|bottom right crop||technical
+230D|bottom left crop||technical
+230E|top right crop||technical
+230F|top left crop||technical
+2310|reversed not sign||technical
+2311|square lozenge||technical
+2312|arc||technical
+2313|segment||technical
+2314|sector||technical
+2315|telephone recorder||technical
+2316|position indicator||technical
+2317|viewdata square||technical
+2318|place of interest sign|command cmd key|technical
+2319|turned not sign||technical
+231A|watch||technical
+231B|hourglass||technical
+231C|top left corner||technical
+231D|top right corner||technical
+231E|bottom left corner||technical
+231F|bottom right corner||technical
+2320|top half integral||technical
+2321|bottom half integral||technical
+2322|frown||technical
+2323|smile||technical
+2324|up arrowhead between two horizontal bars||technical
+2325|option key||technical
+2326|erase to the right||technical
+2327|x in a rectangle box||technical
+2328|keyboard||technical
+2329|left pointing angle bracket||technical
+232A|right pointing angle bracket||technical
+232B|erase to the left||technical
+232C|benzene ring||technical
+232D|cylindricity||technical
+232E|all around profile||technical
+232F|symmetry||technical
+2330|total runout||technical
+2331|dimension origin||technical
+2332|conical taper||technical
+2333|slope||technical
+2334|counterbore||technical
+2335|countersink||technical
+2373|apl functional symbol iota||technical
+2374|apl functional symbol rho||technical
+2375|apl functional symbol omega||technical
+237A|apl functional symbol alpha||technical
+237B|not check mark||technical
+237C|right angle with downwards zigzag arrow||technical
+237D|shouldered open box||technical
+237E|bell symbol||technical
+237F|vertical line with middle dot||technical
+2380|insertion symbol||technical
+2381|continuous underline symbol||technical
+2382|discontinuous underline symbol||technical
+2383|emphasis symbol||technical
+2384|composition symbol||technical
+2385|white square with centre vertical line||technical
+2386|enter symbol||technical
+2387|alternative key symbol||technical
+2388|helm symbol||technical
+2389|circled horizontal bar with notch||technical
+238A|circled triangle down||technical
+238B|broken circle with northwest arrow|escape esc key|technical
+238C|undo symbol||technical
+238D|monostable symbol||technical
+238E|hysteresis symbol||technical
+238F|open circuit output h type symbol||technical
+2390|open circuit output l type symbol||technical
+2391|passive pull down output symbol||technical
+2392|passive pull up output symbol||technical
+2393|direct current symbol form two||technical
+2394|software function symbol||technical
+2396|decimal separator key symbol||technical
+2397|previous page||technical
+2398|next page||technical
+2399|print screen symbol||technical
+239A|clear screen symbol||technical
+239B|left parenthesis upper hook||technical
+239C|left parenthesis extension||technical
+239D|left parenthesis lower hook||technical
+239E|right parenthesis upper hook||technical
+239F|right parenthesis extension||technical
+23A0|right parenthesis lower hook||technical
+23A1|left square bracket upper corner||technical
+23A2|left square bracket extension||technical
+23A3|left square bracket lower corner||technical
+23A4|right square bracket upper corner||technical
+23A5|right square bracket extension||technical
+23A6|right square bracket lower corner||technical
+23A7|left curly bracket upper hook||technical
+23A8|left curly bracket middle piece||technical
+23A9|left curly bracket lower hook||technical
+23AA|curly bracket extension||technical
+23AB|right curly bracket upper hook||technical
+23AC|right curly bracket middle piece||technical
+23AD|right curly bracket lower hook||technical
+23AE|integral extension||technical
+23AF|horizontal line extension||technical
+23BE|dentistry symbol light vertical and top right||technical
+23BF|dentistry symbol light vertical and bottom right||technical
+23C0|dentistry symbol light vertical with circle||technical
+23C1|dentistry symbol light down and horizontal with circle||technical
+23C2|dentistry symbol light up and horizontal with circle||technical
+23C3|dentistry symbol light vertical with triangle||technical
+23C4|dentistry symbol light down and horizontal with triangle||technical
+23C5|dentistry symbol light up and horizontal with triangle||technical
+23C6|dentistry symbol light vertical and wave||technical
+23C7|dentistry symbol light down and horizontal with wave||technical
+23C8|dentistry symbol light up and horizontal with wave||technical
+23C9|dentistry symbol light down and horizontal||technical
+23CA|dentistry symbol light up and horizontal||technical
+23CB|dentistry symbol light vertical and top left||technical
+23CC|dentistry symbol light vertical and bottom left||technical
+23CD|square foot||technical
+23CE|return symbol|return enter key|technical
+23CF|eject symbol||technical
+23D0|vertical line extension||technical
+23D1|metrical breve||technical
+23D2|metrical long over short||technical
+23D3|metrical short over long||technical
+23D4|metrical long over two shorts||technical
+23D5|metrical two shorts over long||technical
+23D6|metrical two shorts joined||technical
+23D7|metrical triseme||technical
+23D8|metrical tetraseme||technical
+23D9|metrical pentaseme||technical
+23DA|earth ground||technical
+23DB|fuse||technical
+23E2|white trapezium||technical
+23E3|benzene ring with circle||technical
+23E4|straightness||technical
+23E5|flatness||technical
+23E6|ac current||technical
+23E7|electrical intersection||technical
+23E8|decimal exponent symbol||technical
+23E9|black right pointing double triangle||technical
+23EA|black left pointing double triangle||technical
+23EB|black up pointing double triangle||technical
+23EC|black down pointing double triangle||technical
+23ED|black right pointing double triangle with vertical bar||technical
+23EE|black left pointing double triangle with vertical bar||technical
+23EF|black right pointing triangle with double vertical bar||technical
+23F0|alarm clock|alarm clock|technical
+23F1|stopwatch|stopwatch timer|technical
+23F2|timer clock||technical
+23F3|hourglass with flowing sand|hourglass|technical
+23F4|black medium left pointing triangle||technical
+23F5|black medium right pointing triangle||technical
+23F6|black medium up pointing triangle||technical
+23F7|black medium down pointing triangle||technical
+23F8|double vertical bar||technical
+23F9|black square for stop||technical
+23FA|black circle for record||technical
+23FB|power symbol||technical
+23FC|power on off symbol||technical
+23FD|power on symbol||technical
+23FE|power sleep symbol||technical
+23FF|observer eye symbol||technical
+2150|vulgar fraction one seventh||numbers
+2151|vulgar fraction one ninth||numbers
+2152|vulgar fraction one tenth||numbers
+2153|vulgar fraction one third||numbers
+2154|vulgar fraction two thirds||numbers
+2155|vulgar fraction one fifth||numbers
+2156|vulgar fraction two fifths||numbers
+2157|vulgar fraction three fifths||numbers
+2158|vulgar fraction four fifths||numbers
+2159|vulgar fraction one sixth||numbers
+215A|vulgar fraction five sixths||numbers
+215B|vulgar fraction one eighth||numbers
+215C|vulgar fraction three eighths||numbers
+215D|vulgar fraction five eighths||numbers
+215E|vulgar fraction seven eighths||numbers
+215F|fraction numerator one||numbers
+2160|roman numeral one||numbers
+2161|roman numeral two||numbers
+2162|roman numeral three||numbers
+2163|roman numeral four||numbers
+2164|roman numeral five||numbers
+2165|roman numeral six||numbers
+2166|roman numeral seven||numbers
+2167|roman numeral eight||numbers
+2168|roman numeral nine||numbers
+2169|roman numeral ten||numbers
+216A|roman numeral eleven||numbers
+216B|roman numeral twelve||numbers
+216C|roman numeral fifty||numbers
+216D|roman numeral one hundred||numbers
+216E|roman numeral five hundred||numbers
+216F|roman numeral one thousand||numbers
+2170|small roman numeral one||numbers
+2171|small roman numeral two||numbers
+2172|small roman numeral three||numbers
+2173|small roman numeral four||numbers
+2174|small roman numeral five||numbers
+2175|small roman numeral six||numbers
+2176|small roman numeral seven||numbers
+2177|small roman numeral eight||numbers
+2178|small roman numeral nine||numbers
+2179|small roman numeral ten||numbers
+217A|small roman numeral eleven||numbers
+217B|small roman numeral twelve||numbers
+217C|small roman numeral fifty||numbers
+217D|small roman numeral one hundred||numbers
+217E|small roman numeral five hundred||numbers
+217F|small roman numeral one thousand||numbers
+2180|roman numeral one thousand c d||numbers
+2181|roman numeral five thousand||numbers
+2182|roman numeral ten thousand||numbers
+2183|roman numeral reversed one hundred||numbers
+2184|latin small letter reversed c||numbers
+2185|roman numeral six late form||numbers
+2186|roman numeral fifty early form||numbers
+2187|roman numeral fifty thousand||numbers
+2188|roman numeral one hundred thousand||numbers
+2189|vulgar fraction zero thirds||numbers
+218A|turned digit two||numbers
+218B|turned digit three||numbers
+2460|circled digit one||numbers
+2461|circled digit two||numbers
+2462|circled digit three||numbers
+2463|circled digit four||numbers
+2464|circled digit five||numbers
+2465|circled digit six||numbers
+2466|circled digit seven||numbers
+2467|circled digit eight||numbers
+2468|circled digit nine||numbers
+2469|circled number ten||numbers
+246A|circled number eleven||numbers
+246B|circled number twelve||numbers
+246C|circled number thirteen||numbers
+246D|circled number fourteen||numbers
+246E|circled number fifteen||numbers
+246F|circled number sixteen||numbers
+2470|circled number seventeen||numbers
+2471|circled number eighteen||numbers
+2472|circled number nineteen||numbers
+2473|circled number twenty||numbers
+2474|parenthesized digit one||numbers
+2475|parenthesized digit two||numbers
+2476|parenthesized digit three||numbers
+2477|parenthesized digit four||numbers
+2478|parenthesized digit five||numbers
+2479|parenthesized digit six||numbers
+247A|parenthesized digit seven||numbers
+247B|parenthesized digit eight||numbers
+247C|parenthesized digit nine||numbers
+247D|parenthesized number ten||numbers
+247E|parenthesized number eleven||numbers
+247F|parenthesized number twelve||numbers
+2480|parenthesized number thirteen||numbers
+2481|parenthesized number fourteen||numbers
+2482|parenthesized number fifteen||numbers
+2483|parenthesized number sixteen||numbers
+2484|parenthesized number seventeen||numbers
+2485|parenthesized number eighteen||numbers
+2486|parenthesized number nineteen||numbers
+2487|parenthesized number twenty||numbers
+2488|digit one full stop||numbers
+2489|digit two full stop||numbers
+248A|digit three full stop||numbers
+248B|digit four full stop||numbers
+248C|digit five full stop||numbers
+248D|digit six full stop||numbers
+248E|digit seven full stop||numbers
+248F|digit eight full stop||numbers
+2490|digit nine full stop||numbers
+2491|number ten full stop||numbers
+2492|number eleven full stop||numbers
+2493|number twelve full stop||numbers
+2494|number thirteen full stop||numbers
+2495|number fourteen full stop||numbers
+2496|number fifteen full stop||numbers
+2497|number sixteen full stop||numbers
+2498|number seventeen full stop||numbers
+2499|number eighteen full stop||numbers
+249A|number nineteen full stop||numbers
+249B|number twenty full stop||numbers
+249C|parenthesized latin small letter a||numbers
+249D|parenthesized latin small letter b||numbers
+249E|parenthesized latin small letter c||numbers
+249F|parenthesized latin small letter d||numbers
+24A0|parenthesized latin small letter e||numbers
+24A1|parenthesized latin small letter f||numbers
+24A2|parenthesized latin small letter g||numbers
+24A3|parenthesized latin small letter h||numbers
+24A4|parenthesized latin small letter i||numbers
+24A5|parenthesized latin small letter j||numbers
+24A6|parenthesized latin small letter k||numbers
+24A7|parenthesized latin small letter l||numbers
+24A8|parenthesized latin small letter m||numbers
+24A9|parenthesized latin small letter n||numbers
+24AA|parenthesized latin small letter o||numbers
+24AB|parenthesized latin small letter p||numbers
+24AC|parenthesized latin small letter q||numbers
+24AD|parenthesized latin small letter r||numbers
+24AE|parenthesized latin small letter s||numbers
+24AF|parenthesized latin small letter t||numbers
+24B0|parenthesized latin small letter u||numbers
+24B1|parenthesized latin small letter v||numbers
+24B2|parenthesized latin small letter w||numbers
+24B3|parenthesized latin small letter x||numbers
+24B4|parenthesized latin small letter y||numbers
+24B5|parenthesized latin small letter z||numbers
+24B6|circled latin capital letter a||numbers
+24B7|circled latin capital letter b||numbers
+24B8|circled latin capital letter c||numbers
+24B9|circled latin capital letter d||numbers
+24BA|circled latin capital letter e||numbers
+24BB|circled latin capital letter f||numbers
+24BC|circled latin capital letter g||numbers
+24BD|circled latin capital letter h||numbers
+24BE|circled latin capital letter i||numbers
+24BF|circled latin capital letter j||numbers
+24C0|circled latin capital letter k||numbers
+24C1|circled latin capital letter l||numbers
+24C2|circled latin capital letter m||numbers
+24C3|circled latin capital letter n||numbers
+24C4|circled latin capital letter o||numbers
+24C5|circled latin capital letter p||numbers
+24C6|circled latin capital letter q||numbers
+24C7|circled latin capital letter r||numbers
+24C8|circled latin capital letter s||numbers
+24C9|circled latin capital letter t||numbers
+24CA|circled latin capital letter u||numbers
+24CB|circled latin capital letter v||numbers
+24CC|circled latin capital letter w||numbers
+24CD|circled latin capital letter x||numbers
+24CE|circled latin capital letter y||numbers
+24CF|circled latin capital letter z||numbers
+24D0|circled latin small letter a||numbers
+24D1|circled latin small letter b||numbers
+24D2|circled latin small letter c||numbers
+24D3|circled latin small letter d||numbers
+24D4|circled latin small letter e||numbers
+24D5|circled latin small letter f||numbers
+24D6|circled latin small letter g||numbers
+24D7|circled latin small letter h||numbers
+24D8|circled latin small letter i||numbers
+24D9|circled latin small letter j||numbers
+24DA|circled latin small letter k||numbers
+24DB|circled latin small letter l||numbers
+24DC|circled latin small letter m||numbers
+24DD|circled latin small letter n||numbers
+24DE|circled latin small letter o||numbers
+24DF|circled latin small letter p||numbers
+24E0|circled latin small letter q||numbers
+24E1|circled latin small letter r||numbers
+24E2|circled latin small letter s||numbers
+24E3|circled latin small letter t||numbers
+24E4|circled latin small letter u||numbers
+24E5|circled latin small letter v||numbers
+24E6|circled latin small letter w||numbers
+24E7|circled latin small letter x||numbers
+24E8|circled latin small letter y||numbers
+24E9|circled latin small letter z||numbers
+24EA|circled digit zero||numbers
+24EB|negative circled number eleven||numbers
+24EC|negative circled number twelve||numbers
+24ED|negative circled number thirteen||numbers
+24EE|negative circled number fourteen||numbers
+24EF|negative circled number fifteen||numbers
+24F0|negative circled number sixteen||numbers
+24F1|negative circled number seventeen||numbers
+24F2|negative circled number eighteen||numbers
+24F3|negative circled number nineteen||numbers
+24F4|negative circled number twenty||numbers
+24F5|double circled digit one||numbers
+24F6|double circled digit two||numbers
+24F7|double circled digit three||numbers
+24F8|double circled digit four||numbers
+24F9|double circled digit five||numbers
+24FA|double circled digit six||numbers
+24FB|double circled digit seven||numbers
+24FC|double circled digit eight||numbers
+24FD|double circled digit nine||numbers
+24FE|double circled number ten||numbers
+24FF|negative circled digit zero||numbers
+00A2|cent sign|cent|currency
+00A3|pound sign|pound sterling|currency
+00A4|currency sign||currency
+00A5|yen sign|yen|currency
+20A0|euro currency sign||currency
+20A1|colon sign||currency
+20A2|cruzeiro sign||currency
+20A3|french franc sign||currency
+20A4|lira sign||currency
+20A5|mill sign||currency
+20A6|naira sign||currency
+20A7|peseta sign||currency
+20A8|rupee sign||currency
+20A9|won sign||currency
+20AA|new sheqel sign||currency
+20AB|dong sign||currency
+20AC|euro sign|euro|currency
+20AD|kip sign||currency
+20AE|tugrik sign||currency
+20AF|drachma sign||currency
+20B0|german penny sign||currency
+20B1|peso sign||currency
+20B2|guarani sign||currency
+20B3|austral sign||currency
+20B4|hryvnia sign||currency
+20B5|cedi sign||currency
+20B8|tenge sign||currency
+20B9|indian rupee sign|rupee|currency
+20BA|turkish lira sign||currency
+20BD|ruble sign||currency
+00A1|inverted exclamation mark|inverted exclamation bang|punct
+00A6|broken bar||punct
+00A7|section sign|section paragraph|punct
+00A8|diaeresis||punct
+00A9|copyright sign|copyright|punct
+00AA|feminine ordinal indicator||punct
+00AB|left pointing double angle quotation mark||punct
+00AC|not sign||punct
+00AE|registered sign|registered|punct
+00AF|macron||punct
+00B0|degree sign|degree|punct
+00B1|plus minus sign|plus minus|punct
+00B2|superscript two||punct
+00B3|superscript three||punct
+00B4|acute accent||punct
+00B5|micro sign|micro|punct
+00B6|pilcrow sign|pilcrow paragraph|punct
+00B7|middle dot||punct
+00B8|cedilla||punct
+00B9|superscript one||punct
+00BA|masculine ordinal indicator||punct
+00BB|right pointing double angle quotation mark||punct
+00BC|vulgar fraction one quarter|one quarter fraction|punct
+00BD|vulgar fraction one half|one half fraction|punct
+00BE|vulgar fraction three quarters|three quarters fraction|punct
+00BF|inverted question mark|inverted question|punct
+2010|hyphen||punct
+2011|non breaking hyphen||punct
+2012|figure dash||punct
+2013|en dash|dash en|punct
+2014|em dash|dash em long|punct
+2015|horizontal bar||punct
+2016|double vertical line||punct
+2017|double low line||punct
+2018|left single quotation mark|quote single left|punct
+2019|right single quotation mark|quote single right apostrophe|punct
+201A|single low 9 quotation mark||punct
+201B|single high reversed 9 quotation mark||punct
+201C|left double quotation mark|quote double left|punct
+201D|right double quotation mark|quote double right|punct
+201E|double low 9 quotation mark||punct
+201F|double high reversed 9 quotation mark||punct
+2020|dagger|dagger|punct
+2021|double dagger|double dagger|punct
+2022|bullet|bullet dot point|punct
+2023|triangular bullet||punct
+2024|one dot leader||punct
+2025|two dot leader||punct
+2026|horizontal ellipsis|ellipsis dots|punct
+2027|hyphenation point||punct
+2030|per mille sign||punct
+2031|per ten thousand sign||punct
+2032|prime||punct
+2033|double prime||punct
+2034|triple prime||punct
+2035|reversed prime||punct
+2036|reversed double prime||punct
+2037|reversed triple prime||punct
+2038|caret||punct
+2039|single left pointing angle quotation mark||punct
+203A|single right pointing angle quotation mark||punct
+203B|reference mark||punct
+203C|double exclamation mark||punct
+203D|interrobang||punct
+203E|overline||punct
+203F|undertie||punct
+2040|character tie||punct
+2041|caret insertion point||punct
+2042|asterism||punct
+2043|hyphen bullet||punct
+2044|fraction slash||punct
+2045|left square bracket with quill||punct
+2046|right square bracket with quill||punct
+2047|double question mark||punct
+2048|question exclamation mark||punct
+2049|exclamation question mark||punct
+204A|tironian sign et||punct
+204B|reversed pilcrow sign||punct
+204C|black leftwards bullet||punct
+204D|black rightwards bullet||punct
+204E|low asterisk||punct
+204F|reversed semicolon||punct
+2050|close up||punct
+2051|two asterisks aligned vertically||punct
+2052|commercial minus sign||punct
+2053|swung dash||punct
+2054|inverted undertie||punct
+2055|flower punctuation mark||punct
+2056|three dot punctuation||punct
+2057|quadruple prime||punct
+2058|four dot punctuation||punct
+2059|five dot punctuation||punct
+205A|two dot punctuation||punct
+205B|four dot mark||punct
+205C|dotted cross||punct
+205D|tricolon||punct
+205E|vertical four dots||punct
+2E18|inverted interrobang||punct
+2E1F|tilde with dot below||punct
+2E22|top left half bracket||punct
+2E23|top right half bracket||punct
+2E24|bottom left half bracket||punct
+2E25|bottom right half bracket||punct
+2E2E|reversed question mark||punct

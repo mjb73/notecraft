@@ -1,4 +1,9 @@
-//! The vault: plain markdown on disk, three levels (notebook → section → page).
+//! The vault: plain markdown on disk, three levels (notebook → chapter → page).
+//!
+//! The middle level is a **chapter** in everything the user reads. The code and the folder layout
+//! still call it a `section` (`<notebook>/<chapter>/` is what is on disk today): renaming the
+//! directories would migrate every existing vault for no gain, so the words are kept apart — use
+//! "chapter" in any string the app draws, and `section` only for the data.
 //!
 //! Nothing in this module is egui-aware. The layout is
 //!
@@ -481,6 +486,152 @@ pub fn contained_asset_path(page_path: &Path, reference: &str) -> Option<PathBuf
             under_assets.then_some(resolved)
         }
     }
+}
+
+/// Every asset reference a page names, in order, once each.
+///
+/// Two passes, because a page may name a file in more than one way: the parsed picture blocks
+/// (markdown `![]()` and `<img src=…>`, which are two syntaxes for the same block), and a plain
+/// scan for `assets/<name>` anywhere in the text — which is how a linked attachment
+/// (`[scan.pdf](assets/scan.pdf)`) or a hand-written tag reads. A reference that names no file on
+/// disk is carried nowhere: the caller skips it.
+fn asset_refs(body: &str) -> Vec<String> {
+    let mut refs: Vec<String> = Vec::new();
+    for b in crate::doc::from_markdown(body).blocks {
+        if b.kind == crate::doc::Kind::Image && !b.image.is_empty() && !refs.contains(&b.image) {
+            refs.push(b.image.clone());
+        }
+    }
+    let mut rest = body;
+    while let Some(pos) = rest.find(ASSETS) {
+        let before = rest[..pos].chars().last();
+        let after = &rest[pos + ASSETS.len()..];
+        if let Some(tail) = after.strip_prefix('/') {
+            // a name ends at the quote, bracket, angle or space that closes it in either syntax
+            let name: String = tail
+                .chars()
+                .take_while(|c| !matches!(c, '"' | '\'' | ')' | '>' | ' ' | '\n' | '\t' | ']' | '|'))
+                .collect();
+            let boundary = before.map(|c| !c.is_alphanumeric() && c != '-' && c != '_').unwrap_or(true);
+            if boundary {
+                if let Some(name) = name.split(['?', '#']).next() {
+                    if !name.is_empty() && !name.contains('/') {
+                        let r = format!("{ASSETS}/{name}");
+                        if !refs.contains(&r) {
+                            refs.push(r);
+                        }
+                    }
+                }
+            }
+        }
+        rest = &rest[pos + ASSETS.len()..];
+    }
+    refs
+}
+
+/// Put a moved page's pictures into its new section's `assets/`, and hand back the page's text with
+/// any reference that had to be renamed pointing at its new file.
+///
+/// `carried` is `(reference, resolved source)` taken *before* the page file was moved, because the
+/// references are relative to the folder the page used to be in.
+///
+/// Two cases, and the second one is why this is not a plain `mv`:
+///
+/// - the filename is free in the destination: the file is **renamed** there (moved), unless another
+///   page in the old section still names it — then it is **copied**, so that page keeps its picture;
+/// - the filename is taken: the arriving file gets a ` 2` (then ` 3`…) and the reference is rewritten
+///   to match, so neither picture is lost and neither page shows the other's image.
+fn carry_assets(
+    target: &Path,
+    body: &str,
+    carried: &[(String, PathBuf)],
+) -> io::Result<String> {
+    if carried.is_empty() {
+        return Ok(body.to_string());
+    }
+    let Some(dest_dir) = target.parent().map(|d| d.join(ASSETS)) else {
+        return Ok(body.to_string());
+    };
+    fs::create_dir_all(&dest_dir)?;
+    let mut out = body.to_string();
+    for (reference, src) in carried {
+        if !src.is_file() {
+            continue; // already gone (deleted by hand, or a shared picture moved earlier)
+        }
+        let Some(file_name) = src.file_name() else {
+            continue;
+        };
+        let mut dest = dest_dir.join(file_name);
+        let mut new_reference = reference.clone();
+        if dest.exists() {
+            let stem = Path::new(file_name)
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "image".into());
+            let ext = Path::new(file_name)
+                .extension()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let mut n = 2;
+            loop {
+                let name = if ext.is_empty() {
+                    format!("{stem} {n}")
+                } else {
+                    format!("{stem} {n}.{ext}")
+                };
+                let candidate = dest_dir.join(&name);
+                if !candidate.exists() {
+                    new_reference = match reference.rsplit_once('/') {
+                        Some((dir_ref, _)) => format!("{dir_ref}/{name}"),
+                        None => name.clone(),
+                    };
+                    dest = candidate;
+                    break;
+                }
+                n += 1;
+                if n > 999 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        "no free name for the picture",
+                    ));
+                }
+            }
+        }
+        // another page in the section that this one just left may still show this picture
+        let shared = src
+            .parent()
+            .and_then(|d| d.parent())
+            .map(|section| sibling_names(section, reference))
+            .unwrap_or(false);
+        if shared {
+            fs::copy(src, &dest)?;
+        } else {
+            fs::rename(src, &dest)?;
+        }
+        if new_reference != *reference {
+            out = out.replace(reference, &new_reference);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether any other page in `section` still names `reference` — the test for "copy, do not move".
+fn sibling_names(section: &Path, reference: &str) -> bool {
+    let Ok(entries) = fs::read_dir(section) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.extension().map(|e| e != "md").unwrap_or(true) {
+            continue;
+        }
+        if let Ok(text) = fs::read_to_string(&p) {
+            if text.contains(reference) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 // ------------------------------------------------------------------ vault
@@ -989,7 +1140,14 @@ pub struct Ops;
 impl Ops {
     pub fn create_notebook(root: &Path, name: &str) -> io::Result<PathBuf> {
         let dir = root.join(sanitize(name));
-        fs::create_dir_all(dir.join("Notes"))?;
+        // The default `Notes` chapter belongs to a *new* notebook only. `new_section` calls this as
+        // "make sure the notebook exists", so seeding on every call dropped a phantom `Notes`
+        // chapter into a notebook that already had chapters — one click on `+ Chapter` made two.
+        let fresh = !dir.exists();
+        fs::create_dir_all(&dir)?;
+        if fresh {
+            fs::create_dir_all(dir.join("Notes"))?;
+        }
         Ok(dir)
     }
 
@@ -1070,17 +1228,89 @@ impl Ops {
     pub fn move_page(path: &Path, root: &Path, nb: &str, sec: &str) -> io::Result<PathBuf> {
         let dir = root.join(sanitize(nb)).join(sanitize(sec));
         fs::create_dir_all(&dir)?;
+        // A page's pictures live in the *section's* `assets/`, and its markdown names them relative
+        // to that folder (`assets/x.png`). Moving the `.md` alone left every reference pointing at a
+        // file that stayed behind — the page opened with "missing picture" where its illustrations
+        // were. The pictures it names travel with it (see `carry_assets`).
+        page_is_text(path)?;
+        let (title, body, created, order, _) = read_page_file(path);
+        let carried = asset_refs(&body)
+            .into_iter()
+            .filter_map(|r| contained_asset_path(path, &r).map(|src| (r, src)))
+            .collect::<Vec<_>>();
         let name = path
             .file_name()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "page.md".into());
         let mut target = dir.join(&name);
+        if target == path {
+            // "move" to the section it already lives in is not a move: without this the file
+            // existed, `unique_path` made a second name, and the page was renamed "… 2"
+            return Ok(target);
+        }
         if target.exists() {
             target = unique_path(&dir, &name.trim_end_matches(".md"));
         }
         fs::rename(path, &target)?;
         crate::doc::move_doc(path, &target);
+        let rewritten = carry_assets(&target, &body, &carried)?;
+        if rewritten != body {
+            // a reference had to be renamed at the destination, so the page is written with the new
+            // names; title, created and order are what they were
+            write_page(&target, &title, created.as_deref(), order, &rewritten)?;
+        }
         Ok(target)
+    }
+
+    /// Rename a notebook: one directory rename, which carries its sections, its pages and every
+    /// page's document with it. `sanitize` decides the directory name, so the caller is told the path
+    /// that resulted rather than guessing it.
+    pub fn rename_notebook(root: &Path, old: &str, new: &str) -> io::Result<PathBuf> {
+        let from = root.join(sanitize(old));
+        let to = root.join(sanitize(new));
+        // a blank name is a mistake, not a notebook called "Untitled" (which is what `sanitize`
+        // makes of it)
+        if new.trim().is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a notebook needs a name",
+            ));
+        }
+        if from == to || !from.exists() {
+            return Ok(to);
+        }
+        if to.exists() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("{} already exists", to.display()),
+            ));
+        }
+        fs::rename(&from, &to)?;
+        Ok(to)
+    }
+
+    /// Rename a section of a notebook. Its pages and their documents are inside the folder, so the
+    /// same single rename carries them.
+    pub fn rename_section(root: &Path, nb: &str, old: &str, new: &str) -> io::Result<PathBuf> {
+        let from = root.join(sanitize(nb)).join(sanitize(old));
+        let to = root.join(sanitize(nb)).join(sanitize(new));
+        if new.trim().is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a chapter needs a name",
+            ));
+        }
+        if from == to || !from.exists() {
+            return Ok(to);
+        }
+        if to.exists() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("{} already exists", to.display()),
+            ));
+        }
+        fs::rename(&from, &to)?;
+        Ok(to)
     }
 
     /// Copy a page beside itself: a new file, the same words, its own document.
@@ -1378,7 +1608,7 @@ mod search_tests {
 
     #[test]
     fn the_total_survives_the_limit() {
-        let pages: Vec<(&str, &str)> = (0..5).map(|i| ("x.md", "needle here\n")).collect();
+        let pages: Vec<(&str, &str)> = (0..5).map(|_| ("x.md", "needle here\n")).collect();
         let _ = pages;
         let dir = std::env::temp_dir().join(format!("notecraft-search-many-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -1462,6 +1692,7 @@ mod tests {
         assert_eq!(q.width, None);
         // an inline picture on a text line is still a picture line's business, not this one's
         assert!(parse_image_line("text ![a](p1.png)").is_none());
+    }
 
     /// A crop rides on the line as `crop="x,y,w,h"` and comes back as fractions. It is enough on its own
     /// to make the line an `<img>` — markdown has nowhere to put a crop — and the whole picture stays
@@ -1508,8 +1739,6 @@ mod tests {
             .unwrap()
             .crop
             .is_some());
-    }
-
     }
 
     #[test]
@@ -1848,5 +2077,207 @@ mod tests {
             split_trash_name("2026-10-19-x.md"),
             ("2026-10-19-x.md".to_string(), String::new())
         );
+    }
+}
+
+/// Renaming a notebook or a section is one directory rename: the pages, their pictures and their
+/// documents go with it, and nothing is left behind under the old name.
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    fn vault_at(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("notecraft-rename-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_notebook_and_a_section_take_their_pages_with_them() {
+        let root = vault_at("nb");
+        Ops::create_notebook(&root, "Personal").unwrap();
+        Ops::create_section(&root, "Personal", "Notes").unwrap();
+        let page = Ops::create_page(&root, "Personal", "Notes", "Shopping").unwrap();
+        crate::doc::save(&page, &crate::doc::from_markdown("milk\n")).unwrap();
+        assert!(page.with_extension("note").exists());
+
+        // the notebook
+        let nb = Ops::rename_notebook(&root, "Personal", "Home").unwrap();
+        assert_eq!(nb, root.join("Home"));
+        assert!(!root.join("Personal").exists(), "the old notebook is gone");
+        let page = root.join("Home").join("Notes").join("Shopping.md");
+        assert!(page.exists(), "{page:?}");
+        assert!(page.with_extension("note").exists(), "the document came too");
+
+        // the section
+        let sec = Ops::rename_section(&root, "Home", "Notes", "Lists").unwrap();
+        assert_eq!(sec, root.join("Home").join("Lists"));
+        assert!(!root.join("Home").join("Notes").exists());
+        assert!(root.join("Home/Lists/Shopping.md").exists());
+        assert!(root.join("Home/Lists/Shopping.note").exists());
+
+        // a name already in use is refused rather than merged into the other notebook
+        Ops::create_notebook(&root, "Work").unwrap();
+        assert!(Ops::rename_notebook(&root, "Home", "Work").is_err());
+        assert!(root.join("Home/Lists/Shopping.md").exists(), "nothing moved");
+        // and a blank name is refused
+        assert!(Ops::rename_notebook(&root, "Home", "   ").is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// "Move to" the section a page is already in is not a move: it used to find the file already
+    /// there and rename it "… 2".
+    #[test]
+    fn moving_a_page_onto_its_own_section_leaves_it_alone() {
+        let root = vault_at("move");
+        Ops::create_notebook(&root, "Personal").unwrap();
+        Ops::create_section(&root, "Personal", "Notes").unwrap();
+        let page = Ops::create_page(&root, "Personal", "Notes", "Shopping").unwrap();
+        let same = Ops::move_page(&page, &root, "Personal", "Notes").unwrap();
+        assert_eq!(same, page);
+        assert!(page.exists());
+        assert!(!root.join("Personal/Notes/Shopping 2.md").exists(), "no copy was made");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+/// Moving a page carries the pictures it names: they live in the section's `assets/`, and every
+/// reference in the markdown is relative to it, so a plain `mv` of the `.md` left the page showing
+/// "missing picture".
+#[cfg(test)]
+mod move_asset_tests {
+    use super::*;
+
+    fn root_at(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("notecraft-move-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn page_with_shot(root: &Path, nb: &str, sec: &str, title: &str, shot: &str) -> PathBuf {
+        let page = Ops::create_page(root, nb, sec, title).unwrap();
+        let assets = page.parent().unwrap().join(ASSETS);
+        std::fs::create_dir_all(&assets).unwrap();
+        std::fs::write(assets.join(shot), b"png-bytes").unwrap();
+        write_page(
+            &page,
+            title,
+            None,
+            0.0,
+            &format!("Words before.\n\n![GTA6](assets/{shot})\n\nWords after.\n"),
+        )
+        .unwrap();
+        page
+    }
+
+    #[test]
+    fn a_moved_page_takes_its_pictures_along() {
+        let root = root_at("one");
+        Ops::create_notebook(&root, "Personal").unwrap();
+        Ops::create_section(&root, "Personal", "Notes").unwrap();
+        Ops::create_notebook(&root, "Work").unwrap();
+        Ops::create_section(&root, "Work", "Games").unwrap();
+        let page = page_with_shot(&root, "Personal", "Notes", "GTA6", "gta6-1.png");
+
+        let moved = Ops::move_page(&page, &root, "Work", "Games").unwrap();
+        assert_eq!(moved, root.join("Work/Games/GTA6.md"));
+        assert!(!root.join("Personal/Notes/GTA6.md").exists());
+        // the picture came with it, at the same relative reference
+        assert!(
+            root.join("Work/Games/assets/gta6-1.png").is_file(),
+            "the picture did not travel"
+        );
+        assert!(!root.join("Personal/Notes/assets/gta6-1.png").exists());
+        // and the page still points at a file that is there
+        let (_, body, _, _, _) = read_page_file(&moved);
+        assert!(body.contains("assets/gta6-1.png"), "{body}");
+        let block = crate::doc::from_markdown(&body).blocks[1].clone();
+        assert_eq!(block.kind, crate::doc::Kind::Image);
+        assert!(asset_path(&moved, &block.image).is_file());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A picture two pages in the same section show is *copied*: the page that stays keeps its own.
+    #[test]
+    fn a_shared_picture_is_copied_not_taken() {
+        let root = root_at("shared");
+        Ops::create_notebook(&root, "Personal").unwrap();
+        Ops::create_section(&root, "Personal", "Notes").unwrap();
+        Ops::create_notebook(&root, "Work").unwrap();
+        Ops::create_section(&root, "Work", "Games").unwrap();
+        let a = page_with_shot(&root, "Personal", "Notes", "GTA6", "shot.png");
+        let b = Ops::create_page(&root, "Personal", "Notes", "Other").unwrap();
+        write_page(&b, "Other", None, 1.0, "![GTA6](assets/shot.png)\n").unwrap();
+
+        Ops::move_page(&a, &root, "Work", "Games").unwrap();
+        assert!(root.join("Work/Games/assets/shot.png").is_file(), "copy went");
+        assert!(
+            root.join("Personal/Notes/assets/shot.png").is_file(),
+            "the page left behind lost its picture"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The same for a picture stored the other way — an `<img src=… width=…>` tag, which is what the
+    /// editor writes once a picture has a width or a crop — and for a linked attachment.
+    #[test]
+    fn html_pictures_and_linked_files_travel_too() {
+        let root = root_at("html");
+        Ops::create_notebook(&root, "Personal").unwrap();
+        Ops::create_section(&root, "Personal", "Notes").unwrap();
+        Ops::create_notebook(&root, "Work").unwrap();
+        Ops::create_section(&root, "Work", "Games").unwrap();
+        let page = Ops::create_page(&root, "Personal", "Notes", "GTA6 ART").unwrap();
+        let assets = page.parent().unwrap().join(ASSETS);
+        std::fs::create_dir_all(&assets).unwrap();
+        std::fs::write(assets.join("art.jpg"), b"jpg").unwrap();
+        std::fs::write(assets.join("scan.pdf"), b"pdf").unwrap();
+        write_page(
+            &page,
+            "GTA6 ART",
+            None,
+            0.0,
+            "<img src=\"assets/art.jpg\" alt=\"art.jpg\" width=\"668\">\n\n[scan.pdf](assets/scan.pdf)\n",
+        )
+        .unwrap();
+
+        Ops::move_page(&page, &root, "Work", "Games").unwrap();
+        assert!(root.join("Work/Games/assets/art.jpg").is_file(), "the tag's picture stayed behind");
+        assert!(root.join("Work/Games/assets/scan.pdf").is_file(), "the linked file stayed behind");
+        assert!(!root.join("Personal/Notes/assets/art.jpg").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A name already taken at the destination: the arriving picture keeps both files, and the
+    /// reference is rewritten to the name it actually landed on.
+    #[test]
+    fn a_taken_name_is_renamed_and_the_reference_follows() {
+        let root = root_at("clash");
+        Ops::create_notebook(&root, "Personal").unwrap();
+        Ops::create_section(&root, "Personal", "Notes").unwrap();
+        Ops::create_notebook(&root, "Work").unwrap();
+        Ops::create_section(&root, "Work", "Games").unwrap();
+        // a different picture, already called shot.png in the destination section
+        let other = Ops::create_page(&root, "Work", "Games", "Screenshot").unwrap();
+        let dest_assets = other.parent().unwrap().join(ASSETS);
+        std::fs::create_dir_all(&dest_assets).unwrap();
+        std::fs::write(dest_assets.join("shot.png"), b"a different png").unwrap();
+        let page = page_with_shot(&root, "Personal", "Notes", "GTA6", "shot.png");
+
+        let moved = Ops::move_page(&page, &root, "Work", "Games").unwrap();
+        let (_, body, _, _, _) = read_page_file(&moved);
+        assert!(body.contains("assets/shot 2.png"), "{body}");
+        assert_eq!(
+            std::fs::read(dest_assets.join("shot.png")).unwrap(),
+            b"a different png",
+            "the picture already there was overwritten"
+        );
+        assert_eq!(
+            std::fs::read(dest_assets.join("shot 2.png")).unwrap(),
+            b"png-bytes"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

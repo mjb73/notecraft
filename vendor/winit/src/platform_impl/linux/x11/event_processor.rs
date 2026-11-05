@@ -499,6 +499,34 @@ impl EventProcessor {
 
             let source_window = xev.data.get_long(0) as xproto::Window;
 
+            // NOTE(notecraft patch): hand the pointer position to the application. XDND sends this
+            // message on every motion of a drag, but upstream winit drops the coordinates on the
+            // floor, and the application is left guessing where the file is. Asking the server
+            // instead (`XQueryPointer`) is no substitute: while another client holds the drag's
+            // grab — and always through XWayland — it can keep reporting the place where the drag
+            // entered the window, so a drop target sits still while the file is moved about.
+            {
+                let packed = xev.data.get_long(2);
+                // x and y are packed as two 16-bit halves of the root-window coordinates
+                let x_root = ((packed >> 16) as i32) as i64;
+                let y_root = ((packed & 0xFFFF) as u16 as i16) as i64;
+                let root = wt.xconn.default_root().root;
+                if let Ok(origin) = wt.xconn.translate_coords(window, root) {
+                    let position = PhysicalPosition::new(
+                        (x_root - i64::from(origin.dst_x)) as f64,
+                        (y_root - i64::from(origin.dst_y)) as f64,
+                    );
+                    let event = Event::WindowEvent {
+                        window_id,
+                        event: WindowEvent::CursorMoved {
+                            device_id: mkdid(0),
+                            position,
+                        },
+                    };
+                    callback(&self.target, event);
+                }
+            }
+
             // Equivalent to `(x << shift) | y`
             // where `shift = mem::size_of::<c_short>() * 8`
             // Note that coordinates are in "desktop space", not "window space"

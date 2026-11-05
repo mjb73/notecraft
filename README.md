@@ -3,8 +3,10 @@
 **Notes, todos and idea capture — fast, native, and yours.**
 
 NoteCraft is a desktop notes app that keeps every page as a plain markdown file in a folder you
-choose. Notebooks, sections, pages, a block editor with real formatting, todos with due dates,
-tags, images, screen snips, spellcheck and export — with no account, no database and no lock-in.
+choose. Notebooks, sections, pages, a block editor with real formatting, eleven note faces, colour emoji,
+todos with due dates, tags, images, screen snips, spellcheck and export — with no account, no
+database and no lock-in. If you have a local model (Ollama), it can also tidy a pasted article into
+blocks or summarise a page; without one, that menu is simply absent.
 
 Built in Rust with [egui](https://github.com/emilk/egui), so it runs as one native window on
 **Linux**, **macOS** and **Windows**.
@@ -77,6 +79,15 @@ NOTECRAFT_VAULT=~/Sync/Notes notecraft
 - **Pictures**: paste (`Ctrl+V`), attach files, drop them in, grab a screen snip (`Ctrl+Shift+S`)
   and crop it in the app, annotate it (`Ctrl+Shift+A`), resize it by dragging its corner, crop
   non-destructively (`Ctrl+Shift+C`), centre it, round its corners.
+- **Note fonts and colour emoji.** The Display menu sets the note body in any of eleven bundled
+  faces — Chakra Petch, Space Grotesk, Inter, Nunito, Fraunces, Literata, Merriweather, EB Garamond,
+  Bitter, Caveat and Carlito — each name drawn in the face it names, with text size S/M/L. Colour
+  emoji are painted from a Twemoji pack (egui's rasteriser cannot read a colour font), and the
+  symbol picker only offers characters the bundled faces can actually draw.
+- **Format and summarise with a local model** (optional): a pasted article becomes headings,
+  bullets and paragraphs without the model retyping a word — it only says how to group the text —
+  and any page can be summarised into a block. Both talk to a local Ollama; nothing leaves the
+  machine and there is no key to configure.
 - **Spellcheck** with British and American dictionaries, per page.
 - **Five themes** (`Ctrl+Shift+T`): Void, Ember, Slate, Paper, and **WordCraft** — Word's layout, done
   natively: three strips (title, menu line, command row), a contextual ribbon that changes with the
@@ -112,6 +123,7 @@ notecraft tasks                # open todos, one per line (due date first)
 notecraft search "invoice"     # pages matching, with a snippet
 notecraft path                 # print the vault folder
 notecraft docs-migrate         # convert old pages to the document format
+notecraft doc-sync Page.md     # rebuild one page's .note from its markdown (for scripts/phones)
 notecraft --version
 ```
 
@@ -131,7 +143,7 @@ dictionaries are compiled in.
 git clone https://github.com/mjb73/notecraft
 cd notecraft
 cargo build --release          # target/release/notecraft
-cargo test                     # 150+ unit tests, no display needed
+cargo test                     # 200 unit tests, no display needed
 ```
 
 Install it where your desktop will find it:
@@ -162,6 +174,9 @@ packaging/macos/make-app.sh target/release/notecraft 1.0.0 dist
 | `src/app.rs` | the window: rail, page list, editor, tasks, tags, palette, overlays |
 | `src/theme.rs` | the five themes, the font families, all drawing helpers |
 | `src/platform.rs` | **everything that differs between the platforms**: file choosers, screen capture, opening a folder, the backend readout, the single-window lock |
+| `src/emoji.rs` | colour emoji painted over the monochrome glyph cell, from `assets/emoji.pack` |
+| `src/glyphs.rs` | the symbol and emoji catalogue, built from the bundled faces' own cmaps |
+| `src/ai.rs` | the page formatter and the summariser: one plain-HTTP call to a local Ollama |
 | `src/attach.rs`, `src/imgcache.rs`, `src/highlight.rs`, `src/spell.rs`, `src/export.rs` | attachments, image decoding cache, text layout, spelling, exports |
 | `src/keylayout.rs`, `src/dragout.rs` | Linux extras: the KDE keyboard-layout chip, and dragging a picture out (X11 XDND) |
 
@@ -170,10 +185,20 @@ code reads as if there were one platform. CI builds and tests on Linux, macOS (a
 and `cargo check`s the Windows and macOS targets from Linux as well, so a `cfg` mistake is a build
 failure rather than a broken download.
 
-`vendor/winit` is the windowing toolkit pinned to a small local patch (`[patch.crates-io]` in
-`Cargo.toml`): upstream's X11 drop target rejects `image/png`, which is what a browser drags, so
-dropping a picture from a browser into a page silently did nothing. Only its DnD code is touched,
-and that file is not compiled on Windows or macOS.
+Two dependencies are pinned to a small local patch (`[patch.crates-io]` in `Cargo.toml`):
+
+- `vendor/winit` — upstream's X11 drop target rejects `image/png`, which is what a browser drags, so
+  dropping a picture from a browser into a page silently did nothing. Its XDND motion handler also
+  drops the pointer position, which left a drop target sitting still while a file was moved about.
+- `vendor/egui-winit` — a paste whose clipboard held only a picture emitted no event at all (the key
+  press was swallowed in the same branch), so `Ctrl+V` looked like nothing had been pressed.
+
+Only those DnD/clipboard branches are touched, and the winit file is not compiled on Windows or
+macOS.
+
+`assets/` carries the eleven note faces, their licence texts, the Twemoji pack (`emoji.pack`) and
+the generated symbol catalogue (`glyphs.txt`) — around 11 MB, compiled in, so there is nothing to
+install beside the binary.
 
 ## Known limitations
 
@@ -191,6 +216,12 @@ and that file is not compiled on Windows or macOS.
 - **If a drop or a hotkey does nothing,** Windows writes what happened to
   `%APPDATA%\notecraft\dnd.log` (Linux: `~/.config/notecraft/dnd.log`). It names the formats the drag
   source offered, which is usually enough to tell a rejected drag from one that never arrived.
+- **Format page / Summarise page** need a local [Ollama](https://ollama.com) with a model pulled;
+  the model name is a field in the app. Without one the two menu rows report that no model answered
+  and nothing else changes — no notes data is sent anywhere.
+- **Colour emoji are painted pictures, not font glyphs**, because the toolkit's rasteriser reads
+  outline fonts only. They scale with the note text but are not shaped by it (no colour-font
+  ligatures), and a page exported to plain text carries the emoji character itself.
 - **PDF export** needs one of WeasyPrint, wkhtmltopdf, or a Chromium-family browser (Microsoft Edge
   is on every Windows machine). The HTML export needs nothing and is the same page.
 - **Unsigned builds** — see *Download* above.
@@ -199,6 +230,6 @@ and that file is not compiled on Windows or macOS.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Bundled fonts are under the SIL Open Font License (see
-`assets/licenses/`), and the British/American word lists are derived from public-domain sources
-(`assets/licenses/words.txt`).
+MIT — see [LICENSE](LICENSE). The bundled fonts are under the SIL Open Font License and the emoji
+pack is Twemoji under CC BY 4.0 (both in `assets/licenses/`), and the British/American word lists
+are derived from public-domain sources (`assets/licenses/words.txt`).

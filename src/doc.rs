@@ -26,6 +26,8 @@ pub enum Kind {
     /// A picture: `image` holds the reference, `runs[0]` its caption.
     Image,
     Rule,
+    /// A simple table: `table` holds the grid, its first row being the header.
+    Table,
 }
 
 /// Properties of one stretch of text inside a block.
@@ -202,6 +204,10 @@ pub struct Block {
     /// file written before cropping existed means.
     #[serde(default)]
     pub crop: Option<Crop>,
+    /// Table: the grid. Its cells are plain words — a cell holds a word or two, and a run list for
+    /// each one would double the document for formatting no cell has ever needed.
+    #[serde(default)]
+    pub table: Option<Table>,
 }
 
 impl Block {
@@ -213,10 +219,14 @@ impl Block {
             image: String::new(),
             width: None,
             crop: None,
+            table: None,
         }
     }
 
     pub fn text(&self) -> String {
+        if let Some(t) = &self.table {
+            return t.text();
+        }
         self.runs.iter().map(|r| r.text.as_str()).collect()
     }
 
@@ -226,6 +236,139 @@ impl Block {
         b
     }
 
+}
+
+/// A simple table: a header row and body rows of plain words.
+///
+/// Every row holds the same number of cells, so a column is a column all the way down; there is always
+/// a header row and at least one body row, and at least one column. Those three rules are what make
+/// the add/remove commands answerable — a press that would break one does nothing rather than leaving
+/// a ragged grid behind.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Table {
+    pub rows: Vec<Vec<String>>,
+}
+
+impl Table {
+    pub const DEFAULT_COLS: usize = 3;
+
+    /// A new table: a header and one body row, the header's cells named after their column so an
+    /// empty table still reads as a table.
+    pub fn new(cols: usize) -> Table {
+        let cols = cols.max(1);
+        let head: Vec<String> = (1..=cols).map(|c| format!("Column {c}")).collect();
+        Table {
+            rows: vec![head, vec![String::new(); cols]],
+        }
+    }
+
+    pub fn cols(&self) -> usize {
+        self.rows.first().map(|r| r.len()).unwrap_or(0)
+    }
+
+    /// The grid as words, which is what search, the page list and Copy read.
+    pub fn text(&self) -> String {
+        self.rows
+            .iter()
+            .map(|r| r.join(" | "))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Put an empty row in at `at` — `0` is above the header, `rows.len()` below the last body row.
+    pub fn add_row(&mut self, at: usize) {
+        let cols = self.cols();
+        let at = at.min(self.rows.len());
+        self.rows.insert(at, vec![String::new(); cols]);
+    }
+
+    /// Take a body row out. The header is **never** taken — a table without one is just a grid of
+    /// words with no labels — and the last body row is never taken either, so the table keeps its
+    /// shape: a press that would break either rule does nothing.
+    pub fn remove_row(&mut self, at: usize) {
+        if at > 0 && self.rows.len() > 2 && at < self.rows.len() {
+            self.rows.remove(at);
+        }
+    }
+
+    /// Put an empty cell into every row at `at`.
+    pub fn add_col(&mut self, at: usize) {
+        let at = at.min(self.cols());
+        for r in &mut self.rows {
+            r.insert(at, String::new());
+        }
+    }
+
+    /// Take a column out of every row. The last column is never taken.
+    pub fn remove_col(&mut self, at: usize) {
+        if self.cols() > 1 && at < self.cols() {
+            for r in &mut self.rows {
+                r.remove(at);
+            }
+        }
+    }
+
+    /// The cells of one line: what sits between the pipes, `\|` being a pipe *inside* a cell.
+    fn split_row(line: &str) -> Vec<String> {
+        let t = line.trim();
+        let t = t.strip_prefix('|').unwrap_or(t);
+        let t = t.strip_suffix('|').unwrap_or(t);
+        let mut cells = Vec::new();
+        let mut cell = String::new();
+        let mut chars = t.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' if chars.peek() == Some(&'|') => {
+                    cell.push('|');
+                    chars.next();
+                }
+                '|' => cells.push(std::mem::take(&mut cell).trim().to_string()),
+                _ => cell.push(c),
+            }
+        }
+        cells.push(cell.trim().to_string());
+        cells
+    }
+
+    /// One cell as markdown: a pipe inside it would end the cell.
+    fn cell_md(s: &str) -> String {
+        s.replace('|', "\\|")
+    }
+
+    /// Whether this is the delimiter row of a pipe table — `| --- | :--: |`, nothing but dashes,
+    /// colons and spaces, at least one dash in each cell.
+    fn is_delimiter(line: &str) -> bool {
+        let t = line.trim();
+        if !t.contains('-') || !t.contains('|') {
+            return false;
+        }
+        let cells = Self::split_row(t);
+        !cells.is_empty()
+            && cells.iter().all(|c| {
+                !c.is_empty() && c.contains('-') && c.chars().all(|ch| matches!(ch, '-' | ':' | ' '))
+            })
+    }
+
+    /// Whether this line starts a pipe-table row.
+    fn is_row(line: &str) -> bool {
+        line.trim_start().starts_with('|')
+    }
+
+    /// The rows as they belong in the grid: every row as wide as the header.
+    fn fit(rows: Vec<Vec<String>>) -> Vec<Vec<String>> {
+        let cols = rows.first().map(|r| r.len()).unwrap_or(0).max(1);
+        let mut rows = rows
+            .into_iter()
+            .map(|mut r| {
+                r.resize(cols, String::new());
+                r
+            })
+            .collect::<Vec<_>>();
+        if rows.len() < 2 {
+            rows.push(vec![String::new(); cols]);
+        }
+        rows
+    }
 }
 
 /// A whole page.
@@ -455,8 +598,28 @@ pub fn parse_inline(s: &str, base: Attrs) -> Vec<Run> {
 pub fn from_markdown(body: &str) -> Doc {
     let mut doc = Doc::default();
     let mut in_code = false;
-    for line in body.split('\n') {
+    // peekable: a pipe table is recognised by the delimiter row *under* its header, so the parser has
+    // to look one line ahead before it decides a `|` line is a table
+    let mut lines = body.split('\n').peekable();
+    while let Some(line) = lines.next() {
         let trimmed = line.trim_start();
+        if Table::is_row(line) && lines.peek().is_some_and(|n| Table::is_delimiter(n)) {
+            lines.next(); // the delimiter row itself
+            let mut rows = vec![Table::split_row(line)];
+            while let Some(next) = lines.peek() {
+                if !Table::is_row(next) {
+                    break;
+                }
+                rows.push(Table::split_row(next));
+                lines.next();
+            }
+            let mut b = Block::new(Kind::Table);
+            b.table = Some(Table {
+                rows: Table::fit(rows),
+            });
+            doc.blocks.push(b);
+            continue;
+        }
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
             in_code = !in_code;
             continue;
@@ -581,6 +744,28 @@ pub fn to_markdown(doc: &Doc) -> String {
             }
             Kind::Rule => {
                 out.push_str("---\n");
+                continue;
+            }
+            Kind::Table => {
+                // a header, the delimiter GFM needs to read it back as a table, then the body rows
+                let t = b.table.clone().unwrap_or_default();
+                let cols = t.cols().max(1);
+                for (rn, row) in t.rows.iter().enumerate() {
+                    out.push('|');
+                    for c in 0..cols {
+                        out.push(' ');
+                        out.push_str(&Table::cell_md(row.get(c).map(|s| s.as_str()).unwrap_or("")));
+                        out.push_str(" |");
+                    }
+                    out.push('\n');
+                    if rn == 0 {
+                        out.push('|');
+                        for _ in 0..cols {
+                            out.push_str(" --- |");
+                        }
+                        out.push('\n');
+                    }
+                }
                 continue;
             }
             Kind::Para => {}
@@ -866,6 +1051,235 @@ pub fn attr_all(runs: &[Run], range: Option<(usize, usize)>, f: impl Fn(&Attrs) 
     all
 }
 
+/// Take the characters in `range` out of a run list, keeping the properties on both sides — what
+/// Delete and Cut do to the words they take. `None` means the whole block.
+/// Split `blocks[bi]` at character `idx` and put `incoming` between the two halves.
+///
+/// This is how a file dropped **into** a paragraph lands where it was dropped: the sentence is cut in
+/// two at the pointer (every run keeps its properties on both sides — `slice_runs` does the cutting)
+/// and the new blocks go between the halves. `None` means the block cannot be cut there — it is a
+/// picture, a rule, a table or a code block, or `idx` is one of its ends — and the caller inserts after
+/// the block instead.
+pub fn split_and_insert(
+    blocks: &mut Vec<Block>,
+    bi: usize,
+    idx: usize,
+    incoming: Vec<Block>,
+) -> Option<usize> {
+    let block = blocks.get(bi)?.clone();
+    if matches!(
+        block.kind,
+        Kind::Image | Kind::Rule | Kind::Table | Kind::Code
+    ) {
+        return None;
+    }
+    let total = block.text().chars().count();
+    if idx == 0 || idx >= total {
+        return None;
+    }
+    let mut left = block.clone();
+    left.runs = slice_runs(&block.runs, Some((0, idx)));
+    let mut right = block;
+    right.runs = slice_runs(&right.runs, Some((idx, total)));
+    let n = incoming.len();
+    blocks[bi] = left;
+    blocks.splice(bi + 1..bi + 1, incoming);
+    blocks.insert(bi + 1 + n, right);
+    Some(bi + 1)
+}
+
+/// Move one block to another place in the note.
+///
+/// `to` is the index the block is inserted at in the list as it stands (`to == blocks.len()` appends),
+/// and `split` asks for it to be dropped between the two halves of a paragraph — the same two things a
+/// dropped file is described by. Returns the block's index afterwards, or `None` when it would not move
+/// (dropped where it already is, or onto itself).
+pub fn move_block(
+    blocks: &mut Vec<Block>,
+    from: usize,
+    to: usize,
+    split: Option<(usize, usize)>,
+) -> Option<usize> {
+    if from >= blocks.len() {
+        return None;
+    }
+    if let Some((bi, idx)) = split {
+        // dropping the paragraph's own block into its middle is where it already is
+        if bi == from {
+            return None;
+        }
+        let block = blocks.remove(from);
+        // the split target sits one further along once the moved block has left the list
+        let bi = if bi > from { bi - 1 } else { bi };
+        return split_and_insert(blocks, bi, idx, vec![block]);
+    }
+    if to == from || to == from + 1 {
+        return None;
+    }
+    let block = blocks.remove(from);
+    let at = if to > from { to - 1 } else { to }.min(blocks.len());
+    blocks.insert(at, block);
+    Some(at)
+}
+
+pub fn cut_runs(runs: &[Run], range: Option<(usize, usize)>) -> Vec<Run> {
+    let total = run_len(runs);
+    let (start, end) = match range {
+        Some((s, e)) => (s.min(e).min(total), s.max(e).min(total)),
+        None => (0, total),
+    };
+    let mut out: Vec<Run> = Vec::with_capacity(runs.len() + 1);
+    let mut at = 0usize;
+    for r in runs {
+        let n = r.text.chars().count();
+        let (rs, re) = (at, at + n);
+        at = re;
+        let chars: Vec<char> = r.text.chars().collect();
+        // what is left of this run: the part before the cut, and the part after it
+        let head = start.saturating_sub(rs).min(n);
+        let tail = end.saturating_sub(rs).min(n);
+        if head > 0 {
+            out.push(Run {
+                text: chars[..head].iter().collect(),
+                a: r.a.clone(),
+            });
+        }
+        if tail < n {
+            out.push(Run {
+                text: chars[tail..].iter().collect(),
+                a: r.a.clone(),
+            });
+        }
+    }
+    out
+}
+
+/// The characters in `range` as runs of their own, properties and all — what Copy takes, and what a
+/// run list gives up when the marking crosses several lines. `None` means the whole block.
+pub fn slice_runs(runs: &[Run], range: Option<(usize, usize)>) -> Vec<Run> {
+    let total = run_len(runs);
+    let (start, end) = match range {
+        Some((s, e)) => (s.min(e).min(total), s.max(e).min(total)),
+        None => (0, total),
+    };
+    let mut out: Vec<Run> = Vec::new();
+    let mut at = 0usize;
+    for r in runs {
+        let n = r.text.chars().count();
+        let (rs, re) = (at, at + n);
+        at = re;
+        let lo = start.max(rs);
+        let hi = end.min(re);
+        if lo < hi {
+            let chars: Vec<char> = r.text.chars().collect();
+            out.push(Run {
+                text: chars[lo - rs..hi - rs].iter().collect(),
+                a: r.a.clone(),
+            });
+        }
+    }
+    out
+}
+
+/// A marking: two character positions `(block, char)`, sorted so `a` is the earlier one, plus the
+/// block the marking was started in (the one whose `TextEdit` owns the drag).
+///
+/// A marking inside one line never gets here — egui paints that one itself, from the cursor range
+/// the widget keeps (`App::block_selection`). This is the kind that runs across lines: each line is
+/// its own `TextEdit`, so egui's selection cannot reach past one of them. The first and last lines
+/// are cut where the drag started and stopped and the lines in between are whole, which is what a
+/// selection means in any other editor — marking whole lines instead swallowed the words the user
+/// had deliberately left out.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Mark {
+    pub from: usize,
+    pub a: (usize, usize),
+    pub b: (usize, usize),
+}
+
+impl Mark {
+    pub fn new(from: usize, p: (usize, usize), q: (usize, usize)) -> Mark {
+        let (a, b) = if p <= q { (p, q) } else { (q, p) };
+        Mark { from, a, b }
+    }
+
+    /// Whether the marking never leaves one line (the caller keeps those as a cursor range).
+    pub fn single(&self) -> bool {
+        self.a.0 == self.b.0
+    }
+
+    /// The lines the marking touches.
+    pub fn blocks(&self) -> std::ops::RangeInclusive<usize> {
+        self.a.0..=self.b.0
+    }
+
+    /// What the marking covers in block `k`, given that block's length. `None` when it covers
+    /// nothing there — a drag that began at the very end of a line, or a stale position past the
+    /// end of a line that has since been shortened.
+    pub fn range_in(&self, k: usize, len: usize) -> Option<(usize, usize)> {
+        if k < self.a.0 || k > self.b.0 {
+            return None;
+        }
+        let (s, e) = if self.single() {
+            (self.a.1.min(len), self.b.1.min(len))
+        } else if k == self.a.0 {
+            (self.a.1.min(len), len)
+        } else if k == self.b.0 {
+            (0, self.b.1.min(len))
+        } else {
+            (0, len)
+        };
+        (e > s).then_some((s, e))
+    }
+}
+
+/// What a marking covers, line by line, as `(block, char range)` — the one shape every command
+/// takes: a highlighter, bold, a size step, copy, cut, delete. Lines it covers nothing of are
+/// dropped, so the first and last entries are the ones with a partial range.
+pub fn mark_ranges(doc: &Doc, mark: &Mark) -> Vec<(usize, Option<(usize, usize)>)> {
+    mark.blocks()
+        .filter_map(|k| {
+            let b = doc.blocks.get(k)?;
+            mark.range_in(k, run_len(&b.runs)).map(|r| (k, Some(r)))
+        })
+        .collect()
+}
+
+/// Remove the marked characters, line by line, and return where the caret lands: the join point.
+/// The first line keeps what came before the marking and the last keeps what came after; those two
+/// become one line, and the lines wholly inside the marking go away. A document keeps one block.
+pub fn cut_selection(
+    doc: &mut Doc,
+    ranges: &[(usize, Option<(usize, usize)>)],
+) -> Option<(usize, usize)> {
+    let (ia, ra) = *ranges.first()?;
+    let (ib, rb) = *ranges.last()?;
+    let start = ra.map(|(s, _)| s).unwrap_or(0);
+    let end = rb
+        .map(|(_, e)| e)
+        .unwrap_or_else(|| doc.blocks.get(ib).map(|b| run_len(&b.runs)).unwrap_or(0));
+    if ia == ib || ia >= doc.blocks.len() {
+        let runs = doc.blocks.get(ia)?.runs.clone();
+        doc.blocks[ia].runs = cut_runs(&runs, Some((start, end)));
+        return Some((ia, start));
+    }
+    let head = {
+        let b = doc.blocks.get(ia)?;
+        cut_runs(&b.runs, Some((start, run_len(&b.runs))))
+    };
+    let tail = {
+        let b = doc.blocks.get(ib)?;
+        cut_runs(&b.runs, Some((0, end)))
+    };
+    doc.blocks[ia].runs = join_runs(&head, &tail);
+    let last = ib.min(doc.blocks.len() - 1);
+    if ia + 1 <= last {
+        doc.blocks.drain(ia + 1..=last);
+    }
+    doc.ensure_block();
+    Some((ia, start))
+}
+
 /// Set a block's due date. The date is a run carrying its own words, so the run that already holds a
 /// date is rewritten **in place** — appending a second one made a line read "24 Oct 2026 25 Oct
 /// 2026", and a second date in a hand-edited document is folded into the first (one date per line).
@@ -1098,6 +1512,175 @@ fn block_words(b: &Block) -> String {
         .map(|r| r.text.as_str())
         .collect();
     joined.trim().to_string()
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+
+    /// A pipe table comes in as one block, its header the first row, and goes back out as the same
+    /// markdown — a note that is saved and reopened must not gain or lose a row.
+    #[test]
+    fn a_pipe_table_round_trips() {
+        let body = "| Item | Qty |\n| --- | --- |\n| nails | 40 |\n| screws | 12 |\n";
+        let d = from_markdown(body);
+        assert_eq!(d.blocks.len(), 1, "{:?}", d.blocks);
+        let b = &d.blocks[0];
+        assert_eq!(b.kind, Kind::Table);
+        let t = b.table.clone().unwrap();
+        assert_eq!(t.cols(), 2);
+        assert_eq!(t.rows.len(), 3);
+        assert_eq!(t.rows[0], vec!["Item", "Qty"]);
+        assert_eq!(t.rows[2], vec!["screws", "12"]);
+        assert_eq!(to_markdown(&d), body);
+        // the text is the grid, so search, the page list and Copy can read it
+        assert_eq!(b.text(), "Item | Qty\nnails | 40\nscrews | 12");
+    }
+
+    /// A pipe inside a cell is escaped on the way out and comes back as one character.
+    #[test]
+    fn a_pipe_inside_a_cell_survives() {
+        let mut t = Table::new(2);
+        t.rows[1][0] = "a | b".to_string();
+        let mut d = Doc::default();
+        let mut b = Block::new(Kind::Table);
+        b.table = Some(t);
+        d.blocks.push(b);
+        let md = to_markdown(&d);
+        assert!(md.contains("a \\| b"), "{md}");
+        let back = from_markdown(&md);
+        assert_eq!(back.blocks[0].table.clone().unwrap().rows[1][0], "a | b");
+    }
+
+    /// Rows and columns are added and removed under the grid's own rules: a table always has a header,
+    /// at least one body row, and at least one column, and every row stays as wide as the header.
+    #[test]
+    fn rows_and_columns_stay_square() {
+        let mut t = Table::new(2);
+        assert_eq!((t.rows.len(), t.cols()), (2, 2));
+        t.add_row(2);
+        assert_eq!(t.rows.len(), 3);
+        assert!(t.rows.iter().all(|r| r.len() == 2), "{t:?}");
+        t.add_col(1);
+        assert_eq!(t.cols(), 3);
+        assert!(t.rows.iter().all(|r| r.len() == 3), "{t:?}");
+        // the last column and the last row are never taken
+        t.remove_col(0);
+        assert_eq!(t.cols(), 2);
+        t.remove_col(0);
+        assert_eq!(t.cols(), 1);
+        t.remove_col(0);
+        assert_eq!(t.cols(), 1, "the last column stays");
+        t.remove_row(1);
+        assert_eq!(t.rows.len(), 2);
+        t.remove_row(1);
+        assert_eq!(t.rows.len(), 2, "a header and a body row stay");
+        // a row that is short in the file is padded, one that is long is cut: the grid stays square
+        let d = from_markdown("| a | b |\n| --- | --- |\n| c |\n");
+        let t = d.blocks[0].table.clone().unwrap();
+        assert_eq!(t.rows[1], vec!["c", ""]);
+    }
+
+    /// The delimiter row is what makes a table a table; a line of pipes without one is a paragraph.
+    #[test]
+    fn only_a_delimited_pipe_block_is_a_table() {
+        let d = from_markdown("| not | a table |\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n");
+        assert_eq!(d.blocks[0].kind, Kind::Para);
+        assert_eq!(d.blocks[1].kind, Kind::Table);
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    fn doc_of(lines: &[&str]) -> Doc {
+        let body: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        from_markdown(&body)
+    }
+
+    /// The whole point of a marking that leaves its line: the first and last lines are cut where
+    /// the drag started and stopped. Whole-line marking swallowed the words either side of them.
+    #[test]
+    fn a_marking_across_lines_keeps_its_two_ends() {
+        let d = doc_of(&["alpha bravo charlie", "delta echo foxtrot", "golf hotel india"]);
+        // from "bravo" (char 6) to "echo" (char 6 of the second line)
+        let m = Mark::new(0, (0, 6), (1, 6));
+        let ranges = mark_ranges(&d, &m);
+        assert_eq!(ranges, vec![(0, Some((6, 19))), (1, Some((0, 6)))]);
+        // the same marking the other way round covers the same words
+        let back = Mark::new(1, (1, 6), (0, 6));
+        assert_eq!(mark_ranges(&d, &back), ranges);
+        // dragged down over three lines: the line in the middle is whole, the ends are not
+        let m = Mark::new(0, (0, 6), (2, 4));
+        assert_eq!(
+            mark_ranges(&d, &m),
+            vec![
+                (0, Some((6, 19))),
+                (1, Some((0, 18))),
+                (2, Some((0, 4)))
+            ]
+        );
+        // a marking that begins at the very end of a line covers nothing of it, and that line is
+        // not a target at all
+        let m = Mark::new(0, (0, 19), (1, 5));
+        assert_eq!(mark_ranges(&d, &m), vec![(1, Some((0, 5)))]);
+    }
+
+    #[test]
+    fn deleting_a_marking_joins_the_lines_it_ends_in() {
+        let mut d = doc_of(&["alpha bravo charlie", "delta echo foxtrot", "golf hotel india"]);
+        let m = Mark::new(0, (0, 6), (1, 6));
+        let ranges = mark_ranges(&d, &m);
+        let at = cut_selection(&mut d, &ranges).unwrap();
+        // "alpha " + "echo foxtrot", the line between gone, the caret at the join
+        assert_eq!(d.blocks.len(), 2);
+        assert_eq!(d.blocks[0].text(), "alpha echo foxtrot");
+        assert_eq!(d.blocks[1].text(), "golf hotel india");
+        assert_eq!(at, (0, 6));
+
+        // and one inside a single line takes just those characters
+        let mut d = doc_of(&["one two three"]);
+        let m = Mark::new(0, (0, 4), (0, 7));
+        let ranges = mark_ranges(&d, &m);
+        assert_eq!(cut_selection(&mut d, &ranges), Some((0, 4)));
+        // the space either side of the cut stays: "one " + " three"
+        assert_eq!(d.blocks[0].text(), "one  three");
+    }
+
+    /// A marking can run over several lines and end inside one of them; the properties on both
+    /// sides have to survive the join, or deleting a marked word leaves the rest unstyled.
+    #[test]
+    fn a_cut_keeps_the_properties_around_it() {
+        let mut d = doc_of(&["one two three", "four five six"]);
+        set_attr(&mut d.blocks[0].runs, Some((0, 3)), |a| a.bold = true);
+        set_attr(&mut d.blocks[1].runs, Some((10, 13)), |a| a.mark = 2);
+        let m = Mark::new(0, (0, 8), (1, 5));
+        let ranges = mark_ranges(&d, &m);
+        cut_selection(&mut d, &ranges);
+        assert_eq!(d.blocks[0].text(), "one two five six");
+        // "one" is still bold, "six" still highlighted
+        assert_eq!(slice_runs(&d.blocks[0].runs, Some((0, 3)))[0].a.bold, true);
+        assert_eq!(slice_runs(&d.blocks[0].runs, Some((13, 16)))[0].a.mark, 2);
+    }
+
+    /// Copy takes the marked words, not the lines: what is put back is what was marked.
+    #[test]
+    fn a_copy_takes_exactly_the_marked_words() {
+        let d = doc_of(&["alpha bravo charlie", "delta echo foxtrot"]);
+        let m = Mark::new(0, (0, 6), (1, 6));
+        let text = mark_ranges(&d, &m)
+            .iter()
+            .map(|(i, r)| {
+                slice_runs(&d.blocks[*i].runs, *r)
+                    .iter()
+                    .map(|x| x.text.clone())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(text, "bravo charlie\ndelta ");
+    }
 }
 
 #[cfg(test)]
@@ -1759,5 +2342,128 @@ mod tests_crop {
         let plain = from_markdown("![p](assets/p.png)\n");
         assert_eq!(plain.blocks[0].crop, None);
         assert_eq!(to_markdown(&plain), "![p](assets/p.png)\n");
+    }
+}
+
+#[cfg(test)]
+mod move_tests {
+    use super::*;
+
+    fn note(text: &str) -> Vec<Block> {
+        from_markdown(text).blocks
+    }
+
+    /// Dragging a block down past its neighbour puts it after it, and up puts it before.
+    #[test]
+    fn a_block_moves_between_its_neighbours() {
+        let mut blocks = note("One.\n\nTwo.\n\nThree.\n");
+        // the file was inserted after block 0, i.e. at index 1 for "Two."
+        assert_eq!(move_block(&mut blocks, 0, 2, None), Some(1));
+        assert_eq!(
+            blocks.iter().map(|b| b.text()).collect::<Vec<_>>(),
+            vec!["Two.", "One.", "Three."]
+        );
+        assert_eq!(move_block(&mut blocks, 2, 0, None), Some(0));
+        assert_eq!(
+            blocks.iter().map(|b| b.text()).collect::<Vec<_>>(),
+            vec!["Three.", "Two.", "One."]
+        );
+    }
+
+    /// Dropping it back where it already is does nothing, and neither does a drop onto itself.
+    #[test]
+    fn a_block_dropped_in_place_stays_put() {
+        let mut blocks = note("One.\n\nTwo.\n");
+        assert_eq!(move_block(&mut blocks, 0, 0, None), None);
+        assert_eq!(move_block(&mut blocks, 0, 1, None), None);
+        assert_eq!(move_block(&mut blocks, 1, 2, None), None);
+        assert_eq!(blocks[0].text(), "One.");
+    }
+
+    /// A drop inside a paragraph cuts it and the block lands between the halves — the same rule a
+    /// dropped file follows.
+    #[test]
+    fn a_block_dropped_inside_a_paragraph_cuts_it() {
+        let mut blocks = note("Some words here.\n\n![shot](assets/shot.png)\n");
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[1].kind, Kind::Image);
+        // insert at character 5 of block 0 ("Some ")
+        let at = move_block(&mut blocks, 1, 1, Some((0, 5))).expect("the paragraph is cut");
+        assert_eq!(at, 1);
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].text(), "Some ");
+        assert_eq!(blocks[1].kind, Kind::Image);
+        assert_eq!(blocks[2].text(), "words here.");
+    }
+
+    /// A picture dropped onto its own paragraph is a no-op.
+    #[test]
+    fn dropping_a_block_onto_itself_changes_nothing() {
+        let mut blocks = note("One.\n\nTwo.\n");
+        assert_eq!(move_block(&mut blocks, 1, 1, Some((1, 1))), None);
+        assert_eq!(blocks.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+
+    /// A file dropped inside a sentence lands between the two halves, and the words keep their
+    /// properties on both sides of the cut.
+    #[test]
+    fn a_paragraph_is_cut_at_the_drop_and_the_properties_survive() {
+        let mut blocks = from_markdown("Some **bold** words and *italic* ones.\n").blocks;
+        let idx = 15; // "Some bold words" — after the word, before the space
+
+        let picture = from_markdown("![shot](assets/shot.png)\n").blocks;
+        assert_eq!(picture.len(), 1);
+        let at = split_and_insert(&mut blocks, 0, idx, picture).expect("a paragraph can be cut");
+        assert_eq!(at, 1);
+        assert_eq!(blocks.len(), 3, "{:?}", blocks);
+        // the block's text is the words, not the markdown: fifteen characters is "Some bold words"
+        assert_eq!(blocks[0].text(), "Some bold words");
+        assert_eq!(blocks[1].kind, Kind::Image);
+        assert_eq!(
+            blocks[0].text() + &blocks[2].text(),
+            "Some bold words and italic ones."
+        );
+        // the bold run is still bold on the left of the cut, the italic still italic on the right
+        assert!(blocks[0].runs.iter().any(|r| r.a.bold && r.text.contains("bold")));
+        assert!(blocks[2].runs.iter().any(|r| r.a.italic && r.text.contains("italic")));
+        // and the document still writes back as three blocks, the picture its own line
+        let md = to_markdown(&Doc { blocks: blocks.clone() });
+        assert_eq!(md.matches("![shot](assets/shot.png)").count(), 1, "{md}");
+        // the properties are written back as markers, and the picture sits between the halves
+        assert!(
+            md.contains("Some **bold** words\n![shot](assets/shot.png)\n"),
+            "{md}"
+        );
+    }
+
+    /// A picture, a rule, a table and a code block are not paragraphs: there is nothing to cut.
+    #[test]
+    fn only_a_text_block_can_be_cut_in_two() {
+        for src in [
+            "![x](assets/x.png)\n",
+            "---\n",
+            "```\ncode here\n```\n",
+            "| a | b |\n| --- | --- |\n| 1 | 2 |\n",
+        ] {
+            let mut blocks = from_markdown(src).blocks;
+            let n = blocks.len();
+            let incoming = from_markdown("![y](assets/y.png)\n").blocks;
+            assert!(
+                split_and_insert(&mut blocks, 0, 1, incoming).is_none(),
+                "was cut: {src}"
+            );
+            assert_eq!(blocks.len(), n, "nothing moved: {src}");
+        }
+        // and the ends of a paragraph are gaps, not cuts
+        let mut blocks = from_markdown("words\n").blocks;
+        let incoming = from_markdown("![y](assets/y.png)\n").blocks;
+        assert!(split_and_insert(&mut blocks, 0, 0, incoming.clone()).is_none());
+        let mut blocks = from_markdown("words\n").blocks;
+        assert!(split_and_insert(&mut blocks, 0, 5, incoming).is_none());
     }
 }

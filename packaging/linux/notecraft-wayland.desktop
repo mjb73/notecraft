@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=NoteCraft (Wayland)
+Comment=Same notes app on the native Wayland backend — no drag & drop (winit limitation)
+Exec=notecraft-wayland
+Icon=notecraft
+Terminal=false
+StartupWMClass=notecraft
+Categories=Office;Utility;TextEditor;
+NoDisplay=true

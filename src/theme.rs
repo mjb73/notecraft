@@ -18,6 +18,22 @@ const CHAKRA_MED: &[u8] = include_bytes!("../assets/ChakraPetch-Medium.ttf");
 const CHAKRA_SEMI: &[u8] = include_bytes!("../assets/ChakraPetch-SemiBold.ttf");
 const CHAKRA_BOLD: &[u8] = include_bytes!("../assets/ChakraPetch-Bold.ttf");
 const JETBRAINS: &[u8] = include_bytes!("../assets/JetBrainsMono.ttf");
+/// The glyph fallbacks every family ends with (see `font_definitions`). No note face — and not
+/// Chakra Petch either — carries arrows, maths, dingbats or emoji, so without these a note full of
+/// them reads as rows of empty boxes.
+///
+/// * Noto Sans Symbols 2 — geometric shapes, dingbats, pictographs, half the technical marks.
+/// * Noto Sans Symbols — the misc-technical marks Symbols 2 leaves out (⌘ ⏎ ⎋ ⏱), some arrows.
+/// * Noto Emoji — the *full* monochrome emoji face. egui bundles a subset of this same font and
+///   scales it 0.81; the subset is why 😀 rendered but 🧠 🧪 🧭 🗓 did not.
+/// * DejaVu Sans — last catch-all: ⇒ ⇐ ⇢, letterlike ℃ ℕ, Greek and Cyrillic the note faces lack.
+///
+/// All four are outline fonts (epaint cannot draw colour emoji: it rasterises with `ab_glyph`, which
+/// has no COLR/bitmap support), so emoji land as crisp monochrome glyphs in the text's own ink.
+const NOTO_SYMBOLS2: &[u8] = include_bytes!("../assets/NotoSansSymbols2-Regular.ttf");
+const NOTO_SYMBOLS: &[u8] = include_bytes!("../assets/NotoSansSymbols-Regular.ttf");
+const NOTO_EMOJI: &[u8] = include_bytes!("../assets/NotoEmoji-Regular.ttf");
+const DEJAVU: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
 /// Carlito: the free, metric-compatible Calibri. Two binaries only — regular and bold — so the
 /// medium and semi roles point at the nearest cut. egui has no synthetic weight, so the four names
 /// still have to exist; a ribbon label is regular and a heading is bold, exactly as Word draws them.
@@ -49,7 +65,7 @@ pub const BAR_ROW1_H: f32 = 32.0;
 pub const BAR_TABS_H: f32 = 26.0;
 /// Height of the ribbon content row: one row of controls plus their captions, with 2 pt of air
 /// under the captions so they do not sit on the band's own edge.
-pub const BAR_CONTENT_H: f32 = 44.0;
+pub const BAR_CONTENT_H: f32 = 46.0;
 /// Left and right padding — identical on every strip and in every theme.
 pub const BAR_PAD: f32 = 12.0;
 /// Every label in the bar: tabs, painted buttons, menus, the breadcrumb.
@@ -61,15 +77,31 @@ pub const BAR_FONT: f32 = 11.5;
 pub const BAR_SMALL: f32 = 9.5;
 /// Height of a row-1 control (the search box, the theme switch).
 pub const BAR_CTRL_H: f32 = 24.0;
-/// Height of a row-2 control (a tab, a painted button, a menu).
-pub const BAR_BTN_H: f32 = 26.0;
+/// Height of a row-2 control (a tab, a painted button, a menu). 28, not 26: the picture buttons are
+/// squares of this, and the icons in them were asked to be bigger twice — a 19 pt drawing needs the
+/// room, and 2 pt came off the air under the captions (`BAR_CONTENT_H` 46) rather than off the icons.
+pub const BAR_BTN_H: f32 = 28.0;
 /// Gap between two controls inside one group.
 pub const BAR_ITEM_GAP: f32 = 6.0;
+/// Gap between two controls *inside* one ribbon group. Tighter than `BAR_ITEM_GAP`: a group is a
+/// cluster of pictures that belong together, and the rules between groups (12 pt either side) are
+/// what separates one job from the next. At 6 pt the icon-only row was 762 pt; at 4 it is ~730, which
+/// is the difference between the highlighter swatches fitting a half-width portrait window or not.
+pub const BAR_IN_GROUP_GAP: f32 = 4.0;
 /// Gap either side of a group rule.
 pub const BAR_GROUP_GAP: f32 = 12.0;
 /// Height of the caption line under a group. An 11 pt mono line is ~14 pt tall (ascent + descender),
 /// so a 12 pt box drew the caption into the band's edge and cut it in half.
 pub const BAR_CAPTION_H: f32 = 14.0;
+/// The folded panel strip's stacked label. Bold, and one size up from the 9.5 pt mono it was set at:
+/// the strip is 26 pt wide and can carry it, and the letters are the only thing that says which
+/// panel comes back, so they have to read without being hovered.
+pub const FOLDED_LABEL_SIZE: f32 = 10.5;
+/// The face that label is set in. The chrome's bold, not `F_MONO`: mono ships one weight, so "bold"
+/// in mono is a wish, and the letters are stacked one per line so they need no fixed advance.
+pub const FOLDED_LABEL_FONT: &str = F_BOLD;
+/// Line step for it: 10.5 pt of bold ink is ~13 pt tall, so 13 pt per letter keeps them apart.
+pub const FOLDED_LABEL_STEP: f32 = 13.0;
 
 /// A family by its exact name — what `install_fonts` binds, and what a note face asks for by name.
 /// It is deliberately *not* the chrome switch: a family name is a fact, `fam()` is a decision.
@@ -172,6 +204,36 @@ const CAVEAT: [(&str, &[u8]); 4] = [
     ("Caveat Semi", include_bytes!("../assets/Caveat-SemiBold.ttf")),
     ("Caveat Bold", include_bytes!("../assets/Caveat-Bold.ttf")),
 ];
+const INTER: [(&str, &[u8]); 4] = [
+    ("Inter Reg", include_bytes!("../assets/Inter-Regular.ttf")),
+    ("Inter Med", include_bytes!("../assets/Inter-Medium.ttf")),
+    ("Inter Semi", include_bytes!("../assets/Inter-SemiBold.ttf")),
+    ("Inter Bold", include_bytes!("../assets/Inter-Bold.ttf")),
+];
+const NUNITO: [(&str, &[u8]); 4] = [
+    ("Nunito Reg", include_bytes!("../assets/Nunito-Regular.ttf")),
+    ("Nunito Med", include_bytes!("../assets/Nunito-Medium.ttf")),
+    ("Nunito Semi", include_bytes!("../assets/Nunito-SemiBold.ttf")),
+    ("Nunito Bold", include_bytes!("../assets/Nunito-Bold.ttf")),
+];
+const MERRIWEATHER: [(&str, &[u8]); 4] = [
+    ("Merriweather Reg", include_bytes!("../assets/Merriweather-Regular.ttf")),
+    ("Merriweather Med", include_bytes!("../assets/Merriweather-Medium.ttf")),
+    ("Merriweather Semi", include_bytes!("../assets/Merriweather-SemiBold.ttf")),
+    ("Merriweather Bold", include_bytes!("../assets/Merriweather-Bold.ttf")),
+];
+const GARAMOND: [(&str, &[u8]); 4] = [
+    ("Garamond Reg", include_bytes!("../assets/EBGaramond-Regular.ttf")),
+    ("Garamond Med", include_bytes!("../assets/EBGaramond-Medium.ttf")),
+    ("Garamond Semi", include_bytes!("../assets/EBGaramond-SemiBold.ttf")),
+    ("Garamond Bold", include_bytes!("../assets/EBGaramond-Bold.ttf")),
+];
+const BITTER: [(&str, &[u8]); 4] = [
+    ("Bitter Reg", include_bytes!("../assets/Bitter-Regular.ttf")),
+    ("Bitter Med", include_bytes!("../assets/Bitter-Medium.ttf")),
+    ("Bitter Semi", include_bytes!("../assets/Bitter-SemiBold.ttf")),
+    ("Bitter Bold", include_bytes!("../assets/Bitter-Bold.ttf")),
+];
 
 /// One face a note can be set in, from the Display menu.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -180,22 +242,37 @@ pub enum NoteFont {
     House,
     /// Space Grotesk — a geometric sans with a techy cut.
     Grotesk,
+    /// Inter — the neutral UI sans; a note in it reads like an app, not like a page.
+    Inter,
+    /// Nunito — a rounded sans, soft without being handwriting.
+    Nunito,
     /// Fraunces — a display serif with some wonk in the curves.
     Fraunces,
     /// Literata — a book serif, cut for reading on screen.
     Literata,
+    /// Merriweather — a screen serif with a large x-height; kind at long paragraphs.
+    Merriweather,
+    /// EB Garamond — an old-style serif with calligraphic roots.
+    Garamond,
+    /// Bitter — a slab serif, the sturdy middle ground between serif and mono.
+    Bitter,
     /// Caveat — handwriting, for a note that is a scribble rather than a draft.
     Caveat,
     /// Carlito — Calibri's free metric twin; the WordCraft theme's own default.
     Carlito,
 }
 
-/// The picker's order: the house face first, then the alternatives.
-pub const NOTE_FONTS: [NoteFont; 6] = [
+/// The picker's order: the house face first, then the alternatives, grouped sans → serif → hand.
+pub const NOTE_FONTS: [NoteFont; 11] = [
     NoteFont::House,
     NoteFont::Grotesk,
+    NoteFont::Inter,
+    NoteFont::Nunito,
     NoteFont::Fraunces,
     NoteFont::Literata,
+    NoteFont::Merriweather,
+    NoteFont::Garamond,
+    NoteFont::Bitter,
     NoteFont::Caveat,
     NoteFont::Carlito,
 ];
@@ -206,8 +283,13 @@ impl NoteFont {
         match self {
             NoteFont::House => "house",
             NoteFont::Grotesk => "grotesk",
+            NoteFont::Inter => "inter",
+            NoteFont::Nunito => "nunito",
             NoteFont::Fraunces => "fraunces",
             NoteFont::Literata => "literata",
+            NoteFont::Merriweather => "merriweather",
+            NoteFont::Garamond => "garamond",
+            NoteFont::Bitter => "bitter",
             NoteFont::Caveat => "caveat",
             NoteFont::Carlito => "carlito",
         }
@@ -218,8 +300,13 @@ impl NoteFont {
         match self {
             NoteFont::House => "Chakra Petch",
             NoteFont::Grotesk => "Space Grotesk",
+            NoteFont::Inter => "Inter",
+            NoteFont::Nunito => "Nunito",
             NoteFont::Fraunces => "Fraunces",
             NoteFont::Literata => "Literata",
+            NoteFont::Merriweather => "Merriweather",
+            NoteFont::Garamond => "EB Garamond",
+            NoteFont::Bitter => "Bitter",
             NoteFont::Caveat => "Caveat",
             NoteFont::Carlito => "Carlito",
         }
@@ -240,8 +327,13 @@ impl NoteFont {
         match self {
             NoteFont::House => HOUSE,
             NoteFont::Grotesk => GROTESK,
+            NoteFont::Inter => INTER,
+            NoteFont::Nunito => NUNITO,
             NoteFont::Fraunces => FRAUNCES,
             NoteFont::Literata => LITERATA,
+            NoteFont::Merriweather => MERRIWEATHER,
+            NoteFont::Garamond => GARAMOND,
+            NoteFont::Bitter => BITTER,
             NoteFont::Caveat => CAVEAT,
             NoteFont::Carlito => CARLITO,
         }
@@ -307,12 +399,27 @@ pub fn install_fonts(ctx: &egui::Context) {
 /// epaint's `Fonts::layout`, which kills the process on the first frame that asks for it.
 fn font_definitions() -> egui::FontDefinitions {
     let mut fonts = egui::FontDefinitions::default();
+    // Emoji sit on the baseline as pictures, not letters: a hair under the type they follow reads as
+    // one line. (egui's own copy of this font is scaled 0.81; the difference that mattered was the
+    // subset, not the scale.) Inserted before the `add` closure exists, because a closure holding
+    // `fonts` mutably is what makes the rest of this function read as one list.
+    fonts.font_data.insert(
+        "notoemoji".to_owned(),
+        Arc::new(egui::FontData::from_static(NOTO_EMOJI).tweak(egui::FontTweak {
+            scale: 0.94,
+            ..Default::default()
+        })),
+    );
     let mut add = |name: &str, bytes: &'static [u8]| {
         fonts
             .font_data
             .insert(name.to_owned(), Arc::new(egui::FontData::from_static(bytes)));
     };
     add("jbmono", JETBRAINS);
+    // The glyph fallbacks, registered once and shared by every family (see the constants).
+    add("notosym2", NOTO_SYMBOLS2);
+    add("notosym", NOTO_SYMBOLS);
+    add("dejavu", DEJAVU);
     // both chrome faces, whichever one a theme happens to wear: a theme switch must never land on a
     // family the atlas has not bound (the note-face loop below covers them too; re-binding the same
     // key to the same bytes is a no-op and keeps this independent of NOTE_FONTS' contents)
@@ -322,10 +429,22 @@ fn font_definitions() -> egui::FontDefinitions {
         }
     }
 
-    // Keep egui's emoji/symbol faces as fallback so glyphs outside a note font (arrows, ticks, box
-    // drawing) still rasterize instead of showing tofu; the house regular sits in front of them
-    // because Chakra Petch is the one face guaranteed to cover the app's Latin text.
-    let fallback = ["NotoEmoji-Regular", "emoji-icon-font"];
+    // Keep egui's emoji/symbol faces as the tail of the fallback chain so glyphs outside a note font
+    // (arrows, ticks, box drawing) still rasterize instead of showing tofu; the house regular sits in
+    // front of them because Chakra Petch is the one face guaranteed to cover the app's Latin text.
+    // The full symbol and emoji faces go *before* them: egui's Noto Emoji is a subset, and its
+    // `emoji-icon-font` draws dozens of emoji as thin line art (a target that looks like a circle, a
+    // snake that looks like a squiggle) — which is exactly what "the emoji are not right" meant. The
+    // icon font only answers for characters nothing else has, and it stays for the few box-drawing
+    // marks the app's own labels use.
+    let fallback = [
+        "notosym2",
+        "notosym",
+        "notoemoji",
+        "dejavu",
+        "NotoEmoji-Regular",
+        "emoji-icon-font",
+    ];
 
     for face in NOTE_FONTS {
         for (key, bytes) in face.faces() {
@@ -973,7 +1092,88 @@ pub fn nav_row(
     resp
 }
 
-/// A small header above a group of rows — `Notebooks`, `Sections`, `Pages`, `Commands`.
+/// A row in the rail: the name wrapped at word boundaries over as many lines as it needs, and its
+/// count on the right.
+///
+/// `nav_row` sets its label on one line and, when the name is too long, lays out a *wrapped* galley in
+/// a 27 pt row — text spilling onto the row beneath it, which is worse than the clipping it was meant
+/// to avoid. This one measures first and allocates the height it needs, the way `page_row` does for
+/// the page list: a long notebook name makes a taller row instead of a shorter name.
+pub fn rail_row(
+    ui: &mut Ui,
+    label: &str,
+    selected: bool,
+    badge: Option<String>,
+    indent: f32,
+    t: &Theme,
+) -> Response {
+    let width = ui.available_width();
+    let badge_g = badge.map(|b| {
+        ui.fonts_mut(|f| f.layout_no_wrap(b, FontId::new(11.0, fam(F_MONO)), t.faint))
+    });
+    let badge_w = badge_g.as_ref().map(|g| g.size().x + 10.0).unwrap_or(0.0);
+    // `t.text`, not `t.dim`: the page list sets its titles in `t.text` and those are what these are
+    // being matched to. A dim name in the same face still reads a weight lighter than a bright one —
+    // anti-aliasing on a dark panel thins every stroke — so the weight alone did not make them twins.
+    let text_color = if selected { t.heading } else { t.text };
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = (width - 18.0 - indent - badge_w).max(24.0);
+    job.wrap.break_anywhere = false;
+    job.append(
+        label,
+        0.0,
+        egui::TextFormat {
+            // Semi at every weight, like the page list's titles: the rail's names are headings for the
+            // lists beside them, not the body text they used to be set as.
+            font_id: FontId::new(15.5, fam(F_SEMI)),
+            color: text_color,
+            ..Default::default()
+        },
+    );
+    let galley = ui.fonts_mut(|f| f.layout_job(job));
+    // measured before the galley is handed to the painter, which takes it by value
+    let text_h = galley.size().y;
+    let first_line = galley
+        .rows
+        .first()
+        .map(|r| r.height())
+        .unwrap_or(text_h);
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, text_h + 12.0), Sense::click());
+    {
+        let p = ui.painter();
+        if selected {
+            p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.16));
+            p.rect_filled(
+                egui::Rect::from_min_size(
+                    rect.min + Vec2::new(0.0, 5.0),
+                    Vec2::new(2.5, rect.height() - 10.0),
+                ),
+                CornerRadius::same(2),
+                t.accent,
+            );
+        } else if resp.hovered() {
+            p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
+        }
+    }
+    let text_color = if selected { t.heading } else { t.text };
+    let at = egui::pos2(rect.min.x + 10.0 + indent, rect.center().y - text_h / 2.0);
+    ui.painter().galley(at, galley, text_color);
+    if let Some(g) = badge_g {
+        // Level with the *first* line, not the middle of the block: beside a four-line notebook name a
+        // centred count floats away from the name it belongs to.
+        ui.painter().galley(
+            egui::pos2(
+                rect.max.x - g.size().x - 8.0,
+                rect.min.y + 6.0 + (first_line - g.size().y) * 0.5,
+            ),
+            g,
+            t.faint,
+        );
+    }
+    resp
+}
+
+/// A small header above a group of rows — `Notebooks`, `Chapters`, `Pages`, `Commands`.
 ///
 /// It is set exactly like the small labels in the Display menu (`row_label`, `menu_fonts`): JetBrains
 /// Mono, 11 pt, `faint`. It used to be Chakra Petch, uppercased and tracked out with thin spaces, so
@@ -1047,33 +1247,69 @@ pub enum Icon {
     Italic,
     Code,
     Strike,
+    /// The two ends of the find walk: a chevron each, the same marks as the `‹ ›` in the status bar's
+    /// find strip, so the ribbon offers the step without a key.
+    FindPrev,
+    FindNext,
+    /// Symbols and emoji: a smiling face, which is what the picker is for (the smiley is a glyph, not
+    /// a drawing — Chakra Petch has none, so it comes from the emoji fallback every family ends with).
+    Symbol,
 }
 
 impl Icon {
     /// The ones that are a letter rather than a drawing.
+    ///
+    /// `</>` is **not** here: three characters of text are ~25 pt wide at the size the other letters
+    /// are set, which made its button 34 pt in a row of 28 pt squares. It is drawn instead (two
+    /// chevrons and a slash), which is square by construction and reads the same at any size.
     fn glyph(self) -> Option<&'static str> {
         match self {
             Icon::Heading => Some("H"),
             Icon::Bold => Some("B"),
             Icon::Italic => Some("I"),
-            Icon::Code => Some("</>"),
             Icon::Strike => Some("S"),
+            Icon::Symbol => Some("\u{263A}"),
             _ => None,
         }
     }
 }
 
 /// The square a ribbon icon is drawn in, and the air around it inside the button.
-pub const BAR_ICON: f32 = 13.0;
-const BAR_ICON_GAP: f32 = 4.0;
-const BAR_BTN_PAD: f32 = 6.0;
+///
+/// 19, not 13: the ribbon's buttons carry no label any more, so the picture is the whole command
+/// and it has to read at arm's length. `BAR_BTN_PAD` is set so the button stays the square
+/// `BAR_ICON` + 2 × 4.5 = `BAR_BTN_H`.
+pub const BAR_ICON: f32 = 19.0;
+/// The box the icon paths below are *written* in. `paint_icon` scales that box to `BAR_ICON`, so a
+/// bigger `BAR_ICON` enlarges the drawing instead of leaving a small picture in a big frame.
+const BAR_ICON_UNIT: f32 = 13.0;
+const BAR_BTN_PAD: f32 = 4.5;
+
+/// A half-turn of the paperclip's wire, in the icon box's own units: `(cx, cy)` is the centre of the
+/// turn, `from`/`to` are radians with y pointing *down*. Eight chords per half-circle are well under a
+/// pixel of error at `BAR_ICON`, and the shape stays one polyline (a stroked curve would need a
+/// different colour per segment, which `Shape::line` gives us for free).
+fn icon_turn(cx: f32, cy: f32, r: f32, from: f32, to: f32) -> Vec<(f32, f32)> {
+    const STEPS: usize = 8;
+    (0..=STEPS)
+        .map(|i| {
+            let a = from + (to - from) * i as f32 / STEPS as f32;
+            (cx + r * a.cos(), cy + r * a.sin())
+        })
+        .collect()
+}
 
 /// Paint one icon into `rect` (a `BAR_ICON` square, already centred on the button).
 pub fn paint_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, colour: Color32, hot: Color32) {
-    let s = Stroke::new(1.15_f32, colour);
+    // Everything below is written in a `BAR_ICON_UNIT` box and scaled to the rect it is given, so a
+    // larger icon is the same drawing larger — strokes included, or a bigger icon reads as a
+    // lighter one instead of as a bigger one.
+    let sc = rect.width() / BAR_ICON_UNIT;
+    let sw = |w: f32, c: Color32| Stroke::new(w * sc, c);
+    let s = sw(1.15, colour);
     let a = rect.min;
-    let x = |fx: f32| a.x + fx * rect.width() / BAR_ICON;
-    let y = |fy: f32| a.y + fy * rect.height() / BAR_ICON;
+    let x = |fx: f32| a.x + fx * rect.width() / BAR_ICON_UNIT;
+    let y = |fy: f32| a.y + fy * rect.height() / BAR_ICON_UNIT;
     let pt = |fx: f32, fy: f32| egui::pos2(x(fx), y(fy));
     match icon {
         // a sheet with a clip across its top
@@ -1094,29 +1330,46 @@ pub fn paint_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, colour: Color
                 hot,
             );
         }
-        // paperclip: one wire bent back on itself — two nested rects read as a microphone, a
-        // single folded path reads as a clip
+        // paperclip: the real one, drawn as one wire — long run down the right, a half-turn along the
+        // bottom, up the middle, a half-turn over the top, and a short run down the left that ends
+        // free. Two rounded turns are what distinguishes a clip from the folded box that read as a
+        // microphone; three parallel runs spaced 3 units apart are what keep it from reading as a
+        // spring at 19 pt. The free end is the coloured detail, as one part of every icon is.
         Icon::Attach => {
-            p.add(egui::Shape::line(
-                vec![
-                    pt(9.2, 3.0),
-                    pt(9.2, 9.8),
-                    pt(5.4, 9.8),
-                    pt(5.4, 2.4),
-                    pt(7.9, 2.4),
-                    pt(7.9, 8.2),
-                ],
-                Stroke::new(1.15_f32, colour),
-            ));
-            // the wire's own tip, in colour: the one detail that says "attachment"
-            p.circle_filled(pt(7.9, 8.2), 1.0, hot);
+            // A Gem clip, one wire: down the right, a wide turn round the bottom, up the left, over
+            // the *top* and back down the middle, where it ends free. That combination — a big outer
+            // U opening upward and a smaller inner loop turning the other way — is the whole of what
+            // makes a paperclip a paperclip, and it is the only version of the four tried here that
+            // survives at 19 pt. What failed, in order: a folded box (a microphone), two full-width
+            // turns (a squiggle, "nU"), and the same wire tilted 45° (a paperclip in a vector view,
+            // grey mush in the bar — thin diagonals anti-alias into nothing at this size). Axis
+            // aligned, three strands 3.6 units apart, 2 px of stroke, and the inner end in the
+            // accent. Every candidate was compared at 1:1 before this one was chosen.
+            const PI: f32 = std::f32::consts::PI;
+            const LEFT: f32 = 3.6;
+            const RIGHT: f32 = 10.8;
+            const BOT: f32 = 9.2;
+            const TOP: f32 = 3.2;
+            const R_IN: f32 = 1.8;
+            let mut wire = vec![pt(RIGHT, 1.6), pt(RIGHT, BOT)];
+            for (x, y) in icon_turn((LEFT + RIGHT) * 0.5, BOT, (RIGHT - LEFT) * 0.5, 0.0, PI) {
+                wire.push(pt(x, y));
+            }
+            wire.push(pt(LEFT, TOP));
+            for (x, y) in icon_turn(LEFT + R_IN, TOP, R_IN, PI, 2.0 * PI) {
+                wire.push(pt(x, y));
+            }
+            wire.push(pt(LEFT + 2.0 * R_IN, 8.2));
+            p.add(egui::Shape::line(wire, sw(1.35, colour)));
+            // the inner end in the accent, starting a hair past the turn so the break is clean
+            p.line_segment([pt(LEFT + 2.0 * R_IN, 5.0), pt(LEFT + 2.0 * R_IN, 8.2)], sw(1.35, hot));
         }
         // scissors: two blades crossing over two rings
         Icon::Cut => {
             p.line_segment([pt(3.0, 1.2), pt(9.4, 8.8)], s);
             p.line_segment([pt(10.0, 1.2), pt(3.6, 8.8)], s);
-            p.circle_stroke(pt(3.2, 10.6), 1.7, Stroke::new(1.15_f32, hot));
-            p.circle_stroke(pt(9.8, 10.6), 1.7, Stroke::new(1.15_f32, hot));
+            p.circle_stroke(pt(3.2, 10.6), 1.7 * sc, sw(1.15, hot));
+            p.circle_stroke(pt(9.8, 10.6), 1.7 * sc, sw(1.15, hot));
         }
         // two sheets, the back one offset and filled: copy
         Icon::Copy => {
@@ -1153,7 +1406,7 @@ pub fn paint_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, colour: Color
             p.rect_stroke(
                 egui::Rect::from_min_max(pt(4.6, 4.6), pt(8.4, 8.4)),
                 CornerRadius::same(1),
-                Stroke::new(1.0_f32, hot),
+                sw(1.0, hot),
                 StrokeKind::Inside,
             );
         }
@@ -1167,47 +1420,76 @@ pub fn paint_icon(p: &egui::Painter, rect: egui::Rect, icon: Icon, colour: Color
             );
             p.add(egui::Shape::line(
                 vec![pt(3.8, 6.4), pt(5.8, 8.6), pt(9.4, 3.9)],
-                Stroke::new(1.6_f32, hot),
+                sw(1.6, hot),
             ));
         }
         // three dots and three lines
         Icon::Bullet => {
             for i in 0..3 {
                 let fy = 2.6 + i as f32 * 3.9;
-                p.circle_filled(pt(1.9, fy), 1.1, hot);
+                p.circle_filled(pt(1.9, fy), 1.1 * sc, hot);
                 p.line_segment([pt(4.6, fy), pt(11.8, fy)], s);
             }
         }
         // the same three lines, no dots: the line as it is written
+        // Previous / next match: one chevron each, pointing the way the walk goes. A magnifier with a
+        // chevron inside it was tried first — at 19 pt the two shapes merge into a blob, and the
+        // chevron alone is the same mark the status bar's find strip uses.
+        Icon::FindPrev => {
+            p.add(egui::Shape::line(
+                vec![pt(8.4, 2.4), pt(3.6, 6.5), pt(8.4, 10.6)],
+                sw(1.5, colour),
+            ));
+        }
+        Icon::FindNext => {
+            p.add(egui::Shape::line(
+                vec![pt(4.6, 2.4), pt(9.4, 6.5), pt(4.6, 10.6)],
+                sw(1.5, colour),
+            ));
+        }
         Icon::Plain => {
             for i in 0..3 {
                 let fy = 2.6 + i as f32 * 3.9;
                 p.line_segment([pt(1.2, fy), pt(11.8, fy)], s);
             }
         }
-        // the letters (Heading, Bold, Italic, Code, Strike) never reach here
+        // the code mark: two chevrons and a slash — the slash is the one coloured part, the same
+        // rule the other icons follow
+        Icon::Code => {
+            // The chevrons are wide apart and full height, and the slash is the *same weight* as
+            // them: at 1.5 units in a 13-unit box, with the chevrons 2.6 apart, the slash filled the
+            // gap and the mark read as a solid diamond (caught by upscaling the real button 6×).
+            p.add(egui::Shape::line(
+                vec![pt(4.6, 3.2), pt(1.6, 6.5), pt(4.6, 9.8)],
+                s,
+            ));
+            p.add(egui::Shape::line(
+                vec![pt(8.4, 3.2), pt(11.4, 6.5), pt(8.4, 9.8)],
+                s,
+            ));
+            p.add(egui::Shape::line(
+                vec![pt(8.3, 2.5), pt(4.9, 10.5)],
+                sw(1.15, hot),
+            ));
+        }
+        // the letters (Heading, Bold, Italic, Strike) never reach here
         _ => {}
     }
 }
 
-/// [toolbar_button] with an icon before the label: the ribbon's command button.
+/// [toolbar_button] as a picture: the ribbon's command button.
 ///
-/// The dialog buttons keep `toolbar_button` — an icon before "Cancel" would be decoration. Side
-/// padding drops from 10 to 7 so the icon costs less room than it looks: 14 buttons across a 1200 pt
-/// bar still leave the mark group visible.
-pub fn toolbar_icon_button(ui: &mut Ui, icon: Icon, label: &str, active: bool, t: &Theme) -> Response {
-    // The label is one step up from a dialog button's: at BAR_FONT these read as captions under
-    // their icons rather than as the command's name, which is what WordCraft's row looks like.
-    let font = FontId::new(BAR_FONT + 1.0, fam(F_MED));
-    let galley = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), t.text));
-    let glyph_font = FontId::new(
-        if icon == Icon::Code {
-            BAR_FONT - 1.0
-        } else {
-            BAR_FONT + 1.5
-        },
-        fam(F_SEMI),
-    );
+/// **Icon only — the label is the tooltip, not the face of the button.** A labelled row needed
+/// ~1050 pt for the Pages tab and dropped whatever did not fit, so on a portrait window the
+/// highlighter swatches were simply not there. Square pictures need 740 pt and fit. The group
+/// captions under them still name each cluster, and hovering says what the picture means.
+///
+/// The dialog buttons keep `toolbar_button` — an icon before "Cancel" would be decoration.
+pub fn toolbar_icon_button(ui: &mut Ui, icon: Icon, tip: &str, active: bool, t: &Theme) -> Response {
+    // Letters (H, B, I, S) are set in the chrome face, as Word sets them: a hand-drawn "B" reads as a
+    // bug. They are sized off the icon box, so they grow with the drawings, and every one of them is
+    // narrower than that box — which is what keeps every button in the row the same square.
+    let glyph_font = FontId::new(BAR_ICON - 1.5, fam(F_SEMI));
     let glyph = icon.glyph().map(|g| {
         ui.fonts_mut(|f| f.layout_no_wrap(g.to_owned(), glyph_font.clone(), t.text))
     });
@@ -1215,10 +1497,10 @@ pub fn toolbar_icon_button(ui: &mut Ui, icon: Icon, label: &str, active: bool, t
         .as_ref()
         .map(|g| g.size().x.max(BAR_ICON))
         .unwrap_or(BAR_ICON);
-    let size = Vec2::new(
-        BAR_BTN_PAD * 2.0 + icon_w + BAR_ICON_GAP + galley.size().x,
-        BAR_BTN_H,
-    );
+    // `BAR_BTN_PAD` is half the difference between the icon box and the button height, so every
+    // picture button is a square of `BAR_BTN_H` — a row of them reads as a toolbar, a row of
+    // ragged boxes does not.
+    let size = Vec2::new(BAR_BTN_PAD * 2.0 + icon_w, BAR_BTN_H);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     {
         let p = ui.painter();
@@ -1249,10 +1531,7 @@ pub fn toolbar_icon_button(ui: &mut Ui, icon: Icon, label: &str, active: bool, t
         Icon::Strike => t.warn,
         _ => t.accent,
     };
-    let icon_rect = egui::Rect::from_center_size(
-        egui::pos2(rect.min.x + BAR_BTN_PAD + icon_w * 0.5, rect.center().y),
-        Vec2::splat(BAR_ICON),
-    );
+    let icon_rect = egui::Rect::from_center_size(rect.center(), Vec2::splat(BAR_ICON));
     match &glyph {
         Some(g) => {
             let glyph_ink = match icon {
@@ -1284,16 +1563,8 @@ pub fn toolbar_icon_button(ui: &mut Ui, icon: Icon, label: &str, active: bool, t
         }
         None => paint_icon(ui.painter(), icon_rect, icon, color, hot),
     }
-    let g = ui.fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font.clone(), color));
-    ui.painter().galley(
-        egui::Pos2::new(
-            rect.min.x + BAR_BTN_PAD + icon_w + BAR_ICON_GAP,
-            rect.center().y - g.size().y * 0.5,
-        ),
-        g,
-        color,
-    );
-    resp
+    // The words are still here, one hover away: a picture toolbar without tooltips is a puzzle.
+    resp.on_hover_text(tip)
 }
 
 /// A scope segment: [toolbar_button] with the inactive labels at body-text brightness.
@@ -1402,7 +1673,7 @@ pub fn ribbon_group(ui: &mut Ui, caption: &str, t: &Theme, add: impl FnOnce(&mut
     ui.vertical(|ui| {
         // every group is the same two rows: the controls on the bar's button height, then the
         // caption — so captions across the band sit on one line whatever the group holds
-        ui.spacing_mut().item_spacing.y = 0.0;
+        ui.spacing_mut().item_spacing = Vec2::new(BAR_IN_GROUP_GAP, 0.0);
         ui.add_space((BAR_CONTENT_H - BAR_BTN_H - BAR_CAPTION_H) * 0.5);
         add(ui);
         let width = ui.min_rect().width();
@@ -1419,6 +1690,27 @@ pub fn ribbon_group(ui: &mut Ui, caption: &str, t: &Theme, add: impl FnOnce(&mut
             t.faint,
         );
     });
+}
+
+/// The rule between two ribbon groups, with its air.
+///
+/// Ten buttons of equal weight, mixing modes, views, actions and settings, read as one
+/// undifferentiated strip; the rule says where one job ends. It is painted rather than
+/// `ui.separator()` because egui's own rule spans the whole interact height and takes its colour
+/// from `Visuals`, which on Paper is very nearly the panel itself.
+///
+/// The air either side is part of the *one* allocation, not two `add_space` calls around it: the
+/// row's own item spacing (6 pt) lands on each side of every item, so the old three-item version
+/// cost 25 pt for a 1 pt rule. One allocation costs `2 × side + 1` = 13 and the visible gaps are the
+/// same `BAR_GROUP_GAP`. Five rules at 25 pt were 60 pt of the portrait budget.
+pub fn group_rule(ui: &mut Ui, t: &Theme) {
+    let side = (BAR_GROUP_GAP - BAR_ITEM_GAP).max(0.0);
+    let (r, _) = ui.allocate_exact_size(
+        Vec2::new(1.0 + side * 2.0, BAR_CONTENT_H - 14.0),
+        Sense::hover(),
+    );
+    let bar = egui::Rect::from_center_size(r.center(), Vec2::new(1.0, r.height()));
+    ui.painter().rect_filled(bar, CornerRadius::same(1), t.border);
 }
 
 /// A menu on the ribbon: the same label metrics as a painted button, so "Display" and "Export" sit
@@ -1753,5 +2045,157 @@ mod tests_fonts {
                 );
             }
         }
+    }
+}
+
+/// The ribbon's geometry, measured rather than estimated: a bar that does not fit its window is the
+/// one bug here the eye only catches on someone else's monitor.
+#[cfg(test)]
+mod tests_bar {
+    use super::*;
+
+    /// Lay out the Pages command row exactly as `top_bar` does — the same groups, the same rules,
+    /// the same gaps, the same order — and return the row's width. Nothing is estimated: the rules
+    /// are `group_rule` itself, so the number this measures is the number the bar needs.
+    fn pages_row_groups(t: &Theme) -> f32 {
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        let mut row = egui::Rect::NOTHING;
+        let mut raw = egui::RawInput::default();
+        raw.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1600.0, 900.0),
+        ));
+        let _ = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let r = ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(BAR_ITEM_GAP, 0.0);
+                    ribbon_group(ui, "clipboard", t, |ui| {
+                        ui.horizontal(|ui| {
+                            for icon in [Icon::Cut, Icon::Copy, Icon::Paste] {
+                                toolbar_icon_button(ui, icon, "cut", false, t);
+                            }
+                        });
+                    });
+                    group_rule(ui, t);
+                    ribbon_group(ui, "insert", t, |ui| {
+                        ui.horizontal(|ui| {
+                            for icon in [Icon::Attach, Icon::Snip] {
+                                toolbar_icon_button(ui, icon, "attach", false, t);
+                            }
+                        });
+                    });
+                    group_rule(ui, t);
+                    ribbon_group(ui, "style", t, |ui| {
+                        ui.horizontal(|ui| {
+                            for icon in [Icon::Heading, Icon::Task, Icon::Bullet, Icon::Plain] {
+                                toolbar_icon_button(ui, icon, "style", false, t);
+                            }
+                        });
+                    });
+                    group_rule(ui, t);
+                    ribbon_group(ui, "text", t, |ui| {
+                        ui.horizontal(|ui| {
+                            for icon in [Icon::Bold, Icon::Italic, Icon::Code, Icon::Strike] {
+                                toolbar_icon_button(ui, icon, "text", false, t);
+                            }
+                        });
+                    });
+                    group_rule(ui, t);
+                    ribbon_group(ui, "size", t, |ui| {
+                        ui.horizontal(|ui| {
+                            for label in ["S", "M", "L"] {
+                                toolbar_button(ui, label, false, t);
+                            }
+                        });
+                    });
+                    group_rule(ui, t);
+                    ribbon_group(ui, "mark", t, |ui| {
+                        let none = [false; 5];
+                        ribbon_swatches(ui, &none, t);
+                    });
+                });
+                row = r.response.rect;
+            });
+        });
+        row.width()
+    }
+
+    /// The five highlighter swatches at the bar's own size (`ribbon_marks` in `app` draws these; the
+    /// sizes are repeated here because that function also acts on clicks).
+    fn ribbon_swatches(ui: &mut Ui, current: &[bool; 5], t: &Theme) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            for (i, _on) in current.iter().enumerate() {
+                let colour = t.marks.get(i).copied().unwrap_or(t.faint);
+                let (rect, _) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::hover());
+                ui.painter().rect_filled(rect, CornerRadius::same(3), colour);
+            }
+        });
+    }
+
+    /// The whole Pages row has to fit the width a portrait window offers. The labelled row needed
+    /// ~1050 pt, so at 820 pt the bar dropped every group past `style` — including `mark`, the
+    /// highlighter colours — and on a portrait monitor that is the width the user had. Pictures
+    /// without labels bring the row to 741 pt, rules included, so nothing drops in a portrait window
+    /// and the guards in `top_bar` are only there for a genuinely tiny one.
+    #[test]
+    fn the_pages_row_fits_a_portrait_window() {
+        for t in themes() {
+            let total = pages_row_groups(&t);
+            assert!(
+                total <= 780.0,
+                "{}: the Pages row is {total:.0} pt, and an 820 pt window leaves 796",
+                t.label
+            );
+            // a floor too: a layout that measured nothing would pass the ceiling above
+            assert!(
+                total > 600.0,
+                "{}: the Pages row measured {total:.0} pt, which is too little to be the whole row",
+                t.label
+            );
+        }
+    }
+
+    /// The command buttons are square and icon-only: a picture is the whole face of the button, and
+    /// its words are the tooltip. A labelled button was 40–60 pt wide; a square one is `BAR_BTN_H`.
+    #[test]
+    fn a_command_button_is_a_square_picture() {
+        let t = VOID;
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        let mut sizes: Vec<Vec2> = Vec::new();
+        let mut raw = egui::RawInput::default();
+        raw.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1600.0, 900.0),
+        ));
+        let _ = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                for icon in [Icon::Cut, Icon::Attach, Icon::Heading, Icon::Bold, Icon::Code] {
+                    let r = toolbar_icon_button(ui, icon, "tip", false, &t);
+                    sizes.push(r.rect.size());
+                }
+            });
+        });
+        for s in sizes {
+            assert_eq!(s.y, BAR_BTN_H, "a ribbon button is BAR_BTN_H tall");
+            assert!(
+                (s.x - BAR_BTN_H).abs() <= 6.0,
+                "a ribbon button is a square, not {:.0} × {:.0}",
+                s.x,
+                s.y
+            );
+        }
+    }
+
+    /// The collapsed panel strips stack their label one letter per line. It has to be bold and a size
+    /// up from the 9.5 pt mono it used to be (the user's own request): at 26 pt wide the strip can
+    /// carry it, and a hairline of letters said nothing.
+    #[test]
+    fn the_folded_panel_label_is_bold_and_a_size_up() {
+        assert!(FOLDED_LABEL_SIZE > BAR_SMALL, "the folded label must be bigger than a caption");
+        assert_eq!(FOLDED_LABEL_SIZE, 10.5);
+        assert_eq!(FOLDED_LABEL_FONT, F_BOLD);
     }
 }

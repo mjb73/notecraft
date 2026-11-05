@@ -1,11 +1,14 @@
 //! The main window: three-pane OneNote layout, live-styled markdown editor,
 //! aggregated tasks view, tags view and the Ctrl+K command palette.
 
+use crate::ai;
 use crate::attach;
 use crate::doc;
 #[cfg(all(unix, not(target_os = "macos")))]
 use crate::dragout;
+use crate::emoji;
 use crate::export;
+use crate::glyphs;
 use crate::highlight;
 use crate::imgcache;
 use crate::keylayout;
@@ -37,31 +40,11 @@ fn x11_window_of(_frame: &eframe::Frame) -> Option<u32> {
     None
 }
 
-/// Consume a `Ctrl` shortcut.
-///
-/// The UI labels every shortcut `Ctrl+…` and that is true on every platform, but a Mac user
-/// reaches for Command: on macOS both are accepted, so the label stays honest and the Mac habit
-/// still works. Elsewhere `Modifiers::CTRL` is already the one modifier that exists.
-fn ctrl_key(i: &mut egui::InputState, mods: egui::Modifiers, key: egui::Key) -> bool {
-    if i.consume_key(mods, key) {
-        return true;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        if mods.ctrl && !mods.command {
-            let alt = egui::Modifiers {
-                ctrl: false,
-                command: true,
-                mac_cmd: false,
-                ..mods
-            };
-            return i.consume_key(alt, key);
-        }
-    }
-    false
-}
-
 const GUTTER: f32 = 26.0;
+
+/// How many marks the picker keeps in its recents row. Twenty-four is three rows of the eight a chip
+/// row shows on a narrow window — enough to reach the marks of one afternoon, short enough to scan.
+const GLYPH_RECENT_MAX: usize = 24;
 /// What the right-hand cluster of the top bar costs, measured: `Find` plus the mode, view, action
 /// and display buttons and their gaps. The breadcrumb is given `available - this`, so it can never
 /// grow a slot the buttons then have to overflow. It is a constant because the buttons' own widths
@@ -177,6 +160,8 @@ enum Action {
     OpenSection(String, String),
     Command(&'static str),
     Tag(String),
+    /// Put this mark in at the caret — a palette row found by name (`:fire`, `tick`, `2192`).
+    Glyph(char),
 }
 
 struct PalItem {
@@ -192,6 +177,15 @@ struct PalItem {
 struct Palette {
     query: String,
     sel: usize,
+    focus: bool,
+}
+
+/// The symbol picker's own state: the search term, which chip is live (`None` = the recents row, not a
+/// group), and whether the search field should claim the keyboard on the next frame.
+struct GlyphPick {
+    query: String,
+    /// `Some(key)` is one catalogue group; `None` with an empty query is "recently used".
+    group: Option<&'static str>,
     focus: bool,
 }
 
@@ -299,6 +293,39 @@ pub struct NoteCraft {
     status_at: Option<Instant>,
     last_focused: bool,
     drop_hover: bool,
+    /// Where the pointer was while the file was over the window, in points, read from the X server —
+    /// an XDND drag delivers no motion to the app, see `dragout::pointer_in`.
+    drop_at: Option<egui::Pos2>,
+    /// The blocks as the editor drew them last frame, and each text line's galley: what a drop
+    /// position is hit-tested against. One frame old by construction and harmless — a drag is not an
+    /// edit, so nothing moves while the file is over the window.
+    block_rects: Vec<(usize, egui::Rect)>,
+    line_hits: Vec<LineHit>,
+    /// The note's own column as it was drawn last frame.
+    note_col: Option<egui::Rect>,
+    /// The picture being dragged to another place in this note, by block index. A plain drag on a
+    /// picture moves it (the same target a dropped file gets); Ctrl or Cmd held is the older gesture
+    /// that hands the file to another application.
+    img_move: Option<usize>,
+    /// Whether the drag has supplied any pointer position of its own yet. Once it has, the positions
+    /// are the truth for the rest of the drag and the server is not asked again — otherwise every
+    /// frame without a position would pull the target back to wherever `XQueryPointer` thinks the
+    /// pointer is, which is how a rule ends up stuck in one place while the file is moved.
+    drop_moved: bool,
+    /// The last clipboard paste: a signature of what was on the clipboard and when, so one Ctrl+V is
+    /// one paste even when egui runs the frame twice.
+    last_paste: Option<(String, std::time::Instant)>,
+    /// The marking's words, copied again once the blocks have been drawn.
+    ///
+    /// egui-winit turns Ctrl+C into `Event::Copy`, not into a key press, so `consume_key` never
+    /// matched it and the focused `TextEdit` answered it with *its own* one-line selection — a marking
+    /// across twenty lines reached the clipboard as the sixteen characters of the line the drag began
+    /// in. Writing the marking's text after the text edits have had their turn is what makes the
+    /// marking win.
+    clip_after: Option<String>,
+    /// The last attachment and when it was made. egui can run a frame twice (a discard restores the
+    /// event list), so one Ctrl+V could otherwise attach the same file twice and drop it twice.
+    last_attach: Option<(String, std::time::Instant)>,
     /// Decoded pictures, keyed by path: sizes from file headers, an LRU of textures and the pool
     /// that decodes them off the UI thread (see `imgcache`).
     image_cache: crate::imgcache::ImageCache,
@@ -307,9 +334,27 @@ pub struct NoteCraft {
     /// Lines from a picture being dragged *out* to another app (see `dragout`), drained into the
     /// status bar. `Some` while a drag is in flight, which is also what stops a second one starting.
     drag_rx: Option<std::sync::mpsc::Receiver<String>>,
+    /// The model call in flight (a page being formatted, or a summary being written). A model call
+    /// is seconds long, so it runs on a worker thread and reports through this channel — never on
+    /// the UI thread, where it would freeze the window and the autosave with it.
+    ai_job: Option<AiJob>,
+    /// The summariser's window, while it is open, with the fields it owns.
+    ai_dialog: Option<AiDialog>,
+    /// Which model to ask, and where it lives (`state.json`).
+    ai_cfg: ai::Cfg,
+    /// The word count the summariser offers next time (`state.json`).
+    ai_words: u32,
     /// NoteCraft's own X11 window, when it is an X11 client: the drag-out refuses to drop the picture
     /// back onto this app, and uses it for the synthetic button release that ends the drag for egui.
     x11_window: Option<u32>,
+    /// Drops from our own Windows drop target (see `windows_dnd`), the only way a browser image
+    /// can reach the app there: the toolkit accepts real files only.
+    #[cfg(windows)]
+    win_dnd: Option<std::sync::mpsc::Receiver<crate::windows_dnd::Dropped>>,
+    /// Whether registering that target was attempted — OLE refuses on some systems and it must not
+    /// be retried every frame.
+    #[cfg(windows)]
+    win_dnd_tried: bool,
     /// The picture whose corner handle is being dragged: `(block, how far inside its right edge the
     /// pointer grabbed the handle, the anchor the width is measured from)`. The anchor is the
     /// picture's left edge, or the column's middle when pictures are centred (the width is then twice
@@ -317,18 +362,7 @@ pub struct NoteCraft {
     /// numbers, so the size follows the corner exactly and nothing accumulates from frame to frame —
     /// an `old width + drag delta` form re-adds last frame's growth and runs away from the pointer.
     resizing: Option<(usize, f32, f32)>,
-    /// Drops from our own Windows drop target (see `windows_dnd`), which is the only way a browser
-    /// image can reach the app there: the toolkit accepts real files only.
-    #[cfg(windows)]
-    win_dnd: Option<std::sync::mpsc::Receiver<crate::windows_dnd::Dropped>>,
-    /// Whether registering that target was attempted — OLE refuses on some systems and it must not
-    /// be retried every frame.
-    #[cfg(windows)]
-    win_dnd_tried: bool,
-    /// Screen grab asked for by a button or a shortcut, started on the next frame (when the
-    /// `egui::Context` is at hand to hide and restore the window).
-    snip_request: bool,
-    /// Screen grab in flight, attached when it lands.
+    /// Screen grab in flight (Spectacle region mode), attached when it lands.
     pending_snip: Option<PendingSnip>,
     /// Grab being cropped in the note: drag a box, Enter keeps all of it, Esc drops it.
     snip: Option<SnipShot>,
@@ -342,16 +376,24 @@ pub struct NoteCraft {
     /// The block the menu acts on, and the character range marked inside it.
     selected_block: Option<usize>,
     block_selection: Option<(usize, usize)>,
+    /// Where the caret sits, `(block, char)`: what a Shift+arrow marking grows from and what tells
+    /// Copy which line it is on.
+    caret: Option<(usize, usize)>,
     /// The last non-empty marking in each block. egui collapses a selection on *any* button press,
     /// so this is what lets a right-click keep the marked words (and the menu act on them).
     last_sel: std::collections::HashMap<usize, (usize, usize)>,
-    /// A marking that spans blocks (inclusive range). Each block is its own TextEdit, so egui can
-    /// only mark inside one of them; a drag that leaves its block or a Shift+click selects whole
-    /// blocks here, and every menu action, Delete and Copy apply to the range.
-    block_sel: Option<(usize, usize)>,
+    /// A marking that runs across lines: two character positions, so the first and last lines are
+    /// cut where the drag started and stopped. Each line is its own TextEdit, so egui can only mark
+    /// inside one of them; a marking inside one line stays in `block_selection`, which egui paints,
+    /// and this is the kind that leaves it. Every menu action, Copy, Cut and Delete apply to it.
+    mark: Option<doc::Mark>,
+    /// Set between mouse-down and mouse-up: the `(block, char)` the marking grows from, the block
+    /// the drag started in, and whether that block's own `TextEdit` took the press — it paints a
+    /// selection inside its line only when it did.
+    drag_from: Option<(usize, usize, usize, bool)>,
     /// Set while annotating a picture: the block to repoint at the annotated copy.
     annotate_from_block: Option<usize>,
-    rename_for: Option<PathBuf>,
+    rename_for: Option<RenameTarget>,
     rename_buf: String,
     move_for: Option<PathBuf>,
     /// The month the due-date calendar is showing. One picker at a time, so one month is enough.
@@ -362,6 +404,9 @@ pub struct NoteCraft {
     /// walk the rest in the open note. One search (the palette) needs no other state than this.
     last_needle: Option<String>,
     find_pos: usize,
+    /// Set when a search has just landed: the strip says "n / total" on the next frame, from the
+    /// document that is actually open.
+    find_announce: bool,
     /// An edit the bar asked for. The bar is drawn before the note and cannot touch the document, so
     /// it leaves the command here and `editor` picks it up beside the context menu's own.
     pending_edit: Option<Edit>,
@@ -378,6 +423,15 @@ pub struct NoteCraft {
     history: History,
     /// A block to bring into view once (a search result landing on its match).
     scroll_to_block: Option<usize>,
+    /// Bring a line the caret has just walked to into view, with the smallest scroll that shows it
+    /// (an arrow step out of a line must move the view by one line, never recentre the note).
+    caret_show: Option<usize>,
+    /// The symbol picker, while it is open. A window, not a menu: a menu closes on the first press
+    /// inside it, and putting three marks into a sentence is one gesture, not three openings.
+    glyph_pick: Option<GlyphPick>,
+    /// The marks inserted last, newest first, saved so the picker opens on what this note-writing
+    /// actually uses. Capped — a recents row longer than a row of chips is a history, not a shortcut.
+    glyph_recent: Vec<char>,
     /// Bring the foot of the note into view on the next frame. A picture dropped, pasted or snipped
     /// into the page is appended at the end, so the view follows it down; without this the new
     /// picture sat below the fold and looked as if nothing had happened.
@@ -419,6 +473,41 @@ pub struct NoteCraft {
     keylayout_at: Option<Instant>,
 }
 
+/// A model call in flight: what was asked, of what, and where the answer arrives.
+///
+/// The formatter's answer is only applied if the note still says what it said when the job started
+/// (`AiWhat::Tidy` keeps the page's markdown as it was): a model takes seconds, and words typed
+/// while it was thinking are not words it was asked about.
+struct AiJob {
+    rx: std::sync::mpsc::Receiver<AiMsg>,
+    what: AiWhat,
+    started: Instant,
+}
+
+enum AiMsg {
+    /// A line for the status bar while a long page is being done in batches.
+    Progress(String),
+    Done(Result<AiDone, String>),
+}
+
+enum AiWhat {
+    Tidy { fingerprint: String },
+    Summarise { asked: u32 },
+}
+
+enum AiDone {
+    /// The reformatted document.
+    Doc(doc::Doc),
+    /// The summary prose, the word count it came out at, and the count that was asked for.
+    Summary { text: String, words: usize },
+}
+
+/// The summariser's window's own state: the two fields, as typed.
+struct AiDialog {
+    model: String,
+    words: String,
+}
+
 /// A click on the keyboard chip: what it would do.
 #[derive(Clone)]
 enum KbSwitch {
@@ -437,7 +526,7 @@ struct KbChip {
     hint: String,
 }
 
-/// A screen grab in flight: the capture thread writes `path` and reports how it went.
+/// A screen grab in flight: the capture thread writes `path` and reports back on `outcome`.
 struct PendingSnip {
     path: PathBuf,
     /// Size seen last frame, and when it last changed (the file can be seen
@@ -445,13 +534,55 @@ struct PendingSnip {
     len: u64,
     last_change: Instant,
     started: Instant,
-    /// `Err` once the capture has failed, so the wait ends with a sentence instead of a timeout.
+    /// The capture thread's verdict. A failure ends the wait at once instead of after the
+    /// timeout, and says why (no tool, no permission, no display).
     outcome: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
 }
 
 /// How long the window is given to leave the screen before the grab is taken
-/// (compositors animate a hide), otherwise NoteCraft photographs itself.
+/// (the compositor animates the hide), otherwise NoteCraft photographs itself.
 const SNIP_HIDE_SETTLE: Duration = Duration::from_millis(500);
+
+/// Our own window as KWin names it: only used to hand focus back after the crop overlay, and
+/// only on Linux. The grab itself no longer needs a window id — the app hides through egui's own
+/// `ViewportCommand::Visible`, which every backend implements.
+#[cfg(target_os = "linux")]
+fn own_window() -> Option<String> {
+    let out = std::process::Command::new("kdotool")
+        .args(["search", "--name", "NoteCraft"])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .next()
+        .map(|w| w.to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn own_window() -> Option<String> {
+    None
+}
+
+/// Minimise (hide) or restore NoteCraft's window on Linux. KWin drives X11 clients and Wayland
+/// windows alike, so this works whichever backend the app is running on; on Windows and macOS
+/// nothing is hidden by a compositor tool and this is a no-op.
+#[cfg(target_os = "linux")]
+fn set_window_visible(window: &str, visible: bool) {
+    let cmd = if visible {
+        "windowactivate"
+    } else {
+        "windowminimize"
+    };
+    let _ = std::process::Command::new("kdotool")
+        .args([cmd, window])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+#[cfg(not(target_os = "linux"))]
+fn set_window_visible(_window: &str, _visible: bool) {}
 
 /// Which kind of mark an annotation stroke is.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -480,6 +611,9 @@ struct AnnoStroke {
 #[derive(Clone, Debug)]
 enum Edit {
     Kind(doc::Kind),
+    /// A table in the line where it is asked for — the grid the cell menu then adds rows and
+    /// columns to.
+    Table,
     /// 0 bold, 1 italic, 2 code, 3 strike — toggled over the marked range.
     Attr(u8),
     /// Highlighter colour for the marked words (0 clears it).
@@ -489,6 +623,27 @@ enum Edit {
     Tag(String),
     /// -1 small, 0 the block's own size, +1 large.
     Size(i8),
+}
+
+/// What a cell's menu asks of its table, applied after the block is drawn.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum TableOp {
+    AddRowAbove(usize),
+    AddRowBelow(usize),
+    DelRow(usize),
+    AddColLeft(usize),
+    AddColRight(usize),
+    DelCol(usize),
+    /// Take the table out and leave a plain line behind.
+    Unmake,
+}
+
+/// What the rename dialog is renaming: a page's title, a notebook's folder, or a section's.
+#[derive(Clone, PartialEq, Debug)]
+enum RenameTarget {
+    Page(PathBuf),
+    Notebook(String),
+    Section(String, String),
 }
 
 /// What "Export" writes.
@@ -1306,8 +1461,8 @@ mod tests_panels {
             let mut raw = egui::RawInput::default();
             raw.events.push(ev);
             ctx.begin_pass(raw);
-            let one = ctx.input_mut(|i| ctrl_key(i, egui::Modifiers::CTRL, egui::Key::Num1));
-            let two = ctx.input_mut(|i| ctrl_key(i, egui::Modifiers::CTRL, egui::Key::Num2));
+            let one = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Num1));
+            let two = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Num2));
             let _ = ctx.end_pass();
             (one, two)
         };
@@ -1426,25 +1581,46 @@ impl NoteCraft {
             status_at: None,
             last_focused: true,
             drop_hover: false,
+            drop_at: None,
+            block_rects: Vec::new(),
+            line_hits: Vec::new(),
+            note_col: None,
+            img_move: None,
+            drop_moved: false,
+            last_paste: None,
+            clip_after: None,
+            last_attach: None,
             image_cache: crate::imgcache::ImageCache::default(),
             selected_image: None,
             resizing: None,
             drag_rx: None,
+            ai_job: None,
+            ai_dialog: None,
+            ai_cfg: ai::Cfg {
+                url: state.ai_url.clone().unwrap_or_else(|| ai::DEFAULT_URL.to_string()),
+                model: state
+                    .ai_model
+                    .clone()
+                    .unwrap_or_else(|| ai::DEFAULT_MODEL.to_string()),
+                num_ctx: ai::Cfg::default().num_ctx,
+            },
+            ai_words: state.ai_words.unwrap_or(ai::DEFAULT_WORDS),
             x11_window: None,
             #[cfg(windows)]
             win_dnd: None,
             #[cfg(windows)]
             win_dnd_tried: false,
             pending_snip: None,
-            snip_request: false,
             snip: None,
             annotate: None,
             crop_edit: None,
             doc: doc::Doc::default(),
             selected_block: None,
             block_selection: None,
+            caret: None,
             last_sel: std::collections::HashMap::new(),
-            block_sel: None,
+            mark: None,
+            drag_from: None,
             annotate_from_block: None,
             rename_for: None,
             rename_buf: String::new(),
@@ -1455,8 +1631,9 @@ impl NoteCraft {
                     .unwrap_or(now)
             },
             due_pick: None,
-            last_needle: None,
-            find_pos: 0,
+            last_needle: state.find.as_ref().map(|f| f.needle.clone()),
+            find_pos: state.find.as_ref().map(|f| f.pos).unwrap_or(0),
+            find_announce: false,
             pending_edit: None,
             pending_clip: None,
             title_sent: "NoteCraft".to_owned(),
@@ -1465,6 +1642,15 @@ impl NoteCraft {
             task_due: TaskDue::default(),
             history: History::new(),
             scroll_to_block: None,
+            caret_show: None,
+            glyph_pick: None,
+            glyph_recent: state
+                .glyph_recent
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|s| s.chars().next())
+                .take(GLYPH_RECENT_MAX)
+                .collect(),
             scroll_to_bottom: false,
             scroll_top: false,
             page_scroll: None,
@@ -1474,7 +1660,7 @@ impl NoteCraft {
             view_line: None,
             caption_rows: Vec::new(),
             pending_land: None,
-            keylayout: None,
+            keylayout: keylayout::query(),
             x11_layout: None,
             want_x11: None,
             keylayout_at: Some(Instant::now()),
@@ -1494,6 +1680,34 @@ impl NoteCraft {
         } else {
             app.ensure_default_vault();
         }
+        // The window opens at the top of the notebook list, not wherever it was left last time: the
+        // first notebook and its first chapter are selected, and that chapter's first page is opened
+        // unless the page already open is one of its own. Selecting the notebook without landing in it
+        // left the breadcrumb naming a chapter the open note did not belong to.
+        if let Some(first_nb) = app.vault.notebooks.first() {
+            let name = first_nb.name.clone();
+            let first_sec = first_nb.sections.first().map(|s| s.name.clone());
+            app.nb = Some(name.clone());
+            app.sec = first_sec.clone();
+            if let Some(sec) = first_sec {
+                let keep = app
+                    .page
+                    .as_ref()
+                    .map(|p| {
+                        app.vault
+                            .section_pages(&name, &sec)
+                            .iter()
+                            .any(|i| &app.vault.pages[*i].path == p)
+                    })
+                    .unwrap_or(false);
+                if !keep {
+                    // the view the user left the app in (Tasks, Tags) is not ours to change
+                    let view = app.view;
+                    app.open_chapter(&name, &sec);
+                    app.view = view;
+                }
+            }
+        }
         app
     }
 
@@ -1503,7 +1717,7 @@ impl NoteCraft {
             let _ = Ops::create_notebook(&self.vault.root, "Personal");
             let _ = Ops::create_section(&self.vault.root, "Personal", "Notes");
             if let Ok(path) = Ops::create_page(&self.vault.root, "Personal", "Notes", "Welcome") {
-                let body = "Welcome to NoteCraft.\n\n## Getting around\n\n- **Ctrl+K** — command palette / search everything\n- **Ctrl+N** — new page in this section\n- **Ctrl+T** — tasks view (every open checkbox in the vault)\n- **Ctrl+E** — toggle read / edit\n- **Ctrl+Shift+V** — paste an image into the page\n- **Ctrl+Shift+T** — cycle theme\n\n## Todos work like this\n\n- [ ] write it as a checkbox anywhere\n- [ ] add a #tag in the line to group it\n- [ ] set a due date in the tasks view: click the date chip on the task\n- [x] tick it here or in the tasks view\n\nPages are plain markdown under the vault folder, so grep, backup and sync\nwork on them exactly as they do on any other file.\n";
+                let body = "Welcome to NoteCraft.\n\n## Getting around\n\n- **Ctrl+K** — command palette / search everything\n- **Ctrl+N** — new page in this chapter\n- **Ctrl+T** — tasks view (every open checkbox in the vault)\n- **Ctrl+E** — toggle read / edit\n- **Ctrl+Shift+V** — paste an image into the page\n- **Ctrl+Shift+T** — cycle theme\n\n## Todos work like this\n\n- [ ] write it as a checkbox anywhere\n- [ ] add a #tag in the line to group it\n- [ ] set a due date in the tasks view: click the date chip on the task\n- [x] tick it here or in the tasks view\n\nPages are plain markdown under the vault folder, so grep, backup and sync\nwork on them exactly as they do on any other file.\n";
                 let _ = vault::write_page(&path, "Welcome", None, -100.0, body);
                 self.vault.reload();
                 // Open it: created-but-not-opened left the window saying "no notebook" and the page
@@ -1518,8 +1732,10 @@ impl NoteCraft {
     fn open_page(&mut self, path: &Path, reset_view: bool) {
         self.selected_block = None;
         self.block_selection = None;
+        self.caret = None;
         self.last_sel.clear();
-        self.block_sel = None;
+        self.mark = None;
+        self.drag_from = None;
         self.annotate_from_block = None;
         // Which page the history belongs to. The undo stack holds whole documents, so carrying it
         // across a page switch meant Ctrl+Z on the page you had just opened wrote the *previous*
@@ -1725,7 +1941,7 @@ impl NoteCraft {
                             }
                             self.sec = first_sec;
                         }
-                        self.flash(format!("section “{sec}” moved to .trash"));
+                        self.flash(format!("chapter “{sec}” moved to .trash"));
                     }
                     Err(e) => self.flash(format!("delete failed: {e}")),
                 }
@@ -1741,8 +1957,10 @@ impl NoteCraft {
         self.doc = doc::Doc::default();
         self.selected_block = None;
         self.block_selection = None;
+        self.caret = None;
         self.last_sel.clear();
-        self.block_sel = None;
+        self.mark = None;
+        self.drag_from = None;
         self.history = History::new();
         self.dirty = false;
     }
@@ -1982,7 +2200,9 @@ impl NoteCraft {
     fn after_undo(&mut self) {
         self.body = doc::to_markdown(&self.doc);
         self.block_selection = None;
-        self.block_sel = None;
+        self.caret = None;
+        self.mark = None;
+        self.drag_from = None;
         self.last_sel.clear();
         self.selected_block = None;
         self.mark_dirty();
@@ -2016,16 +2236,22 @@ impl NoteCraft {
                 nth += l.to_lowercase().matches(&needle_l).count();
             }
         }
-        let mut found: Option<(usize, (usize, usize))> = None;
-        if let Some(occ) = self.find_in_doc(&needle_l).get(nth) {
-            found = Some(*occ);
-        }
-        let Some((i, range)) = found else {
+        let occ = self.find_in_doc(&needle_l);
+        let Some((i, range)) = occ.get(nth).copied() else {
             self.flash(format!("opened the page — \"{needle}\" is in the title or a tag"));
             return;
         };
         let _ = ctx;
+        // Which one this is, so F3 carries on from here rather than from the top: the palette could
+        // only ever land on a hit, and the rest of them are reached from the status bar's find strip.
+        self.find_pos = nth;
         self.land_on_block_range(i, range);
+        // The count is said by the find strip instead: a page that has just been opened is not always
+        // parsed by the time the palette's action runs (the flash said "1 / 8" for a note with
+        // eighteen), and by the time the strip is drawn the document on screen is the right one.
+        self.find_announce = true;
+        self.flash("F3 next · Shift+F3 back");
+        self.save_state_soon();
     }
 
     /// Every occurrence of `needle` in the open document, in reading order, as
@@ -2047,13 +2273,33 @@ impl NoteCraft {
     fn land_on_block_range(&mut self, i: usize, range: (usize, usize)) {
         self.pending_land = Some((i, range));
         self.selected_block = Some(i);
-        self.block_sel = Some((i, i));
+        self.mark = None;
         self.block_selection = Some(range);
         self.last_sel.insert(i, range);
         self.scroll_to_block = Some(i);
     }
 
     /// Whether the open page lives under `dir`.
+    /// Land in a chapter with its first page open. Switching chapters is a move into that chapter, and
+    /// a page list with none of its pages open left the previous chapter's note on screen under the new
+    /// chapter's name in the breadcrumb.
+    fn open_chapter(&mut self, nb: &str, sec: &str) {
+        self.nb = Some(nb.to_owned());
+        self.sec = Some(sec.to_owned());
+        self.view = View::Pages;
+        let first = self
+            .vault
+            .section_pages(nb, sec)
+            .first()
+            .map(|i| self.vault.pages[*i].path.clone());
+        // a re-click on the chapter you are already in must not reload the note under the caret
+        if let Some(path) = first {
+            if self.page.as_deref() != Some(path.as_path()) {
+                self.open_page(&path, false);
+            }
+        }
+    }
+
     fn open_page_is_under(&self, dir: &Path) -> bool {
         self.page.as_ref().map(|p| p.starts_with(dir)).unwrap_or(false)
     }
@@ -2095,17 +2341,17 @@ impl NoteCraft {
     fn new_section(&mut self) {
         let nb = self.nb.clone().unwrap_or_else(|| "Personal".into());
         let _ = Ops::create_notebook(&self.vault.root, &nb);
-        let name = format!("Section {}", self.vault.notebook(&nb).map(|n| n.sections.len() + 1).unwrap_or(1));
+        let name = format!("Chapter {}", self.vault.notebook(&nb).map(|n| n.sections.len() + 1).unwrap_or(1));
         let _ = Ops::create_section(&self.vault.root, &nb, &name);
         self.vault.reload();
         self.sec = Some(name);
-        self.flash("new section");
+        self.flash("new chapter");
     }
 
-    fn run_command(&mut self, cmd: &str) {
+    fn run_command(&mut self, cmd: &str, ctx: &egui::Context) {
         match cmd {
             "New page" => self.new_page(),
-            "New section" => self.new_section(),
+            "New chapter" => self.new_section(),
             "New notebook" => {
                 let name = format!("Notebook {}", self.vault.notebooks.len() + 1);
                 let _ = Ops::create_notebook(&self.vault.root, &name);
@@ -2113,6 +2359,13 @@ impl NoteCraft {
                 self.vault.reload();
                 self.nb = Some(name);
                 self.flash("new notebook");
+            }
+            "Symbols…" => {
+                self.glyph_pick = Some(GlyphPick {
+                    query: String::new(),
+                    group: None,
+                    focus: true,
+                })
             }
             "Tasks view" => self.view = View::Tasks,
             "Tags view" => self.view = View::Tags,
@@ -2143,6 +2396,8 @@ impl NoteCraft {
                 None => self.flash("open a page first"),
             },
             "Restore deleted…" => self.trash_open = true,
+            "Format page" => self.tidy_now(ctx),
+            "Summarise page…" => self.open_ai_dialog(),
             "Open vault folder" => {
                 let _ = crate::platform::open_path(&self.vault.root);
             }
@@ -2206,7 +2461,38 @@ impl NoteCraft {
         });
         let was_hovering = self.drop_hover;
         self.drop_hover = !hovered.is_empty();
+        // While a file is over the window, ask the server where the pointer is: the drag sends no
+        // motion events to us, so egui's own position is whatever it was before the drag began.
+        // Repaint for as long as it hovers, or the target would be drawn once and then sit still
+        // while the file moves.
+        if self.drop_hover {
+            // The vendored winit forwards every `XdndPosition` as a `CursorMoved`, so egui's own
+            // pointer is the truth here and the rule follows the file as it is moved. The
+            // `XQueryPointer` fallback is only for a drag that produces no positions at all; it is
+            // not a substitute, because while another client holds the drag's grab it can return a
+            // frozen position (see the patch note in `vendor/winit`'s event processor).
+            let moved = ctx.input(|i| {
+                i.events.iter().rev().find_map(|e| match e {
+                    egui::Event::PointerMoved(p) => Some(*p),
+                    _ => None,
+                })
+            });
+            if let Some(p) = moved {
+                self.drop_moved = true;
+                self.drop_at = Some(p);
+            } else if !self.drop_moved {
+                // Only the X11 backend can be asked where the pointer is during a drag; on the
+                // others the toolkit's own events carry the position.
+                #[cfg(all(unix, not(target_os = "macos")))]
+                if let Some((x, y)) = self.x11_window.and_then(dragout::pointer_in) {
+                    let ppp = ctx.pixels_per_point();
+                    self.drop_at = Some(egui::pos2(x / ppp, y / ppp));
+                }
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
         if self.drop_hover && !was_hovering {
+            self.drop_moved = false;
             // winit only emits HoveredFile once it has fetched the uri-list, so
             // seeing this means the drag really reached us with usable data.
             let msg = format!("hover: {} item(s) {}", hovered.len(), hovered.join(", "));
@@ -2231,17 +2517,69 @@ impl NoteCraft {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
-            self.attach_paths(&dropped);
+            // the position is whatever the last hover frame read, in points: this is where the file
+            // was let go, and it decides where it lands
+            let at = self.drop_place();
+            dnd_log(&format!(
+                "drop: at={:?} place={:?} rects={} hits={}",
+                self.drop_at,
+                at,
+                self.block_rects.len(),
+                self.line_hits.len()
+            ));
+            self.attach_paths(&dropped, at);
+            self.drop_at = None;
+        }
+
+        // A picture being carried: Escape puts it back, and a drag that ends without a release — the
+        // button let go outside the window, so no `drag_stopped` ever arrives — must not leave the note
+        // in a state where the next press thinks something is still being carried.
+        if self.img_move.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.img_move = None;
+            self.drop_at = None;
+            self.flash("picture put back");
         }
 
         let paste = ctx.input(|i| {
             (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::V)
         });
-        if paste && self.paste_from_clipboard() {
+        // A paste lands under the pointer too, when the pointer is over the note: the same rule as a
+        // drop, and the same rule the reader expects from every other editor.
+        let paste_at = ctx
+            .input(|i| i.pointer.hover_pos())
+            .filter(|p| self.note_col.map(|r| r.contains(*p)).unwrap_or(false))
+            .and_then(|p| {
+                let saved = self.drop_at;
+                self.drop_at = Some(p);
+                let place = self.drop_place();
+                self.drop_at = saved;
+                place
+            });
+        // **Ctrl+V never arrives as a key press.** egui-winit turns the shortcut into
+        // `Event::Paste(text)` and strips the modifier, so `key_pressed(V) && ctrl` is never true: the
+        // paste went straight into the focused paragraph — the clipboard's *text*, which for a copied
+        // file is its path — and the file itself was ignored. Take the event: when the clipboard holds
+        // a picture or files, attach them where the pointer is and blank the text.
+        let paste_event = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Paste(_))));
+        if paste_event && self.paste_from_clipboard(paste_at) {
+            // Blank the event's text instead of removing the event: a discarded frame is re-run with
+            // the list restored, so removing it once would only lose the race on the second pass,
+            // while blanking is idempotent — every pass blanks it again and nothing reaches the
+            // paragraph.
+            ctx.input_mut(|i| {
+                for e in &mut i.events {
+                    if let egui::Event::Paste(text) = e {
+                        text.clear();
+                    }
+                }
+            });
+            ctx.request_repaint();
+        }
+        if paste && self.paste_from_clipboard(paste_at) {
             // swallow the key so the text editor does not paste as well
             ctx.input_mut(|i| {
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::V);
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::V);
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::V);
             });
         }
     }
@@ -2250,44 +2588,43 @@ impl NoteCraft {
         // Shift combinations are consumed FIRST: `consume_key(CTRL, Key::S)` also
         // matches Ctrl+Shift+S, so a plain binding listed before its shifted variant
         // swallows it (Ctrl+Shift+S was saving the page instead of grabbing a region).
-        let (shift_z, undo, redo, shift_a, shift_c, shift_t, shift_s, k, n, t, e, f, s, one, two) =
+        let (shift_z, undo, redo, shift_a, shift_c, shift_t, shift_s, shift_f, k, n, t, e, f, s, one, two) =
             ctx.input_mut(|i| {
             (
-                ctrl_key(
-                    i,
+                i.consume_key(
                     egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
                     egui::Key::Z,
                 ),
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::Z),
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::Y),
-                ctrl_key(
-                    i,
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::Z),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::Y),
+                i.consume_key(
                     egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
                     egui::Key::A,
                 ),
-                ctrl_key(
-                    i,
+                i.consume_key(
                     egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
                     egui::Key::X,
                 ),
-                ctrl_key(
-                    i,
+                i.consume_key(
                     egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
                     egui::Key::T,
                 ),
-                ctrl_key(
-                    i,
+                i.consume_key(
                     egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
                     egui::Key::S,
                 ),
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::K),
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::N),
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::T),
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::E),
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::F),
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::S),
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::Num1),
-                ctrl_key(i, egui::Modifiers::CTRL, egui::Key::Num2),
+                i.consume_key(
+                    egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+                    egui::Key::F,
+                ),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::K),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::N),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::T),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::E),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::F),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::S),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::Num1),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::Num2),
             )
         });
         if undo && !shift_z {
@@ -2323,7 +2660,12 @@ impl NoteCraft {
             self.read_mode = !self.read_mode;
         }
         if shift_s {
-            self.snip_region();
+            self.snip_region(ctx);
+        }
+        if shift_f {
+            // Ctrl+Shift+F: reformat the pasted page. Consumed above, before the plain Ctrl+F,
+            // which `consume_key(CTRL, F)` would otherwise swallow (see the comment at the top).
+            self.tidy_now(ctx);
         }
         if shift_a && self.annotate.is_none() {
             // the selected picture, else the first one in the page — blocks, like the editor
@@ -2498,7 +2840,12 @@ impl NoteCraft {
                     .doc
                     .blocks
                     .last()
-                    .map(|b| !matches!(b.kind, doc::Kind::Image | doc::Kind::Rule | doc::Kind::Code))
+                    .map(|b| {
+                        !matches!(
+                            b.kind,
+                            doc::Kind::Image | doc::Kind::Rule | doc::Kind::Code | doc::Kind::Table
+                        )
+                    })
                     .unwrap_or(false);
                 if takes_text {
                     if let Some(b) = self.doc.blocks.last_mut() {
@@ -2607,13 +2954,48 @@ impl NoteCraft {
             self.status.clear();
             self.status_at = None;
         }
+        // A model call reports here: progress lines while a long page is done in batches, then the
+        // answer. The job is taken out of the field so the landing code can borrow `self` mutably;
+        // a job that has not answered yet goes back.
+        if let Some(job) = self.ai_job.take() {
+            let mut done: Option<Result<AiDone, String>> = None;
+            let mut progress: Option<String> = None;
+            loop {
+                match job.rx.try_recv() {
+                    Ok(AiMsg::Progress(m)) => progress = Some(m),
+                    Ok(AiMsg::Done(r)) => {
+                        done = Some(r);
+                        break;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        done = Some(Err("the model worker stopped without an answer".into()));
+                        break;
+                    }
+                }
+            }
+            if let Some(p) = progress {
+                self.status = p;
+                self.status_at = None;
+            }
+            match done {
+                Some(r) => {
+                    let what = job.what;
+                    self.ai_land(&what, r, job.started.elapsed());
+                }
+                None => self.ai_job = Some(job),
+            }
+        }
     }
 
     fn top_bar(&mut self, ctx: &egui::Context) {
         let t = self.theme;
         let mut attach_clicked = false;
+        let mut glyph_clicked = false;
         let mut paste_clicked = false;
         let mut snip_clicked = false;
+        // the ribbon's own way into the find walk: `Some(true)` steps back, `Some(false)` forward
+        let mut find_step: Option<bool> = None;
         let mut search_clicked = false;
         let mut export: Option<ExFmt> = None;
 
@@ -2757,6 +3139,7 @@ impl NoteCraft {
                             }
                         });
                         theme::ribbon_menu(ui, "Display", &t, true, |ui| self.display_menu(ui, &t));
+                        theme::ribbon_menu(ui, "AI", &t, true, |ui| self.ai_menu(ui, &t));
                     });
                 });
                 ui.painter().hline(
@@ -2771,14 +3154,9 @@ impl NoteCraft {
                     match self.view {
                         View::Pages => {
                             // What the right-click menu offers, one row up, acting on the same target:
-                            // the marked blocks, or the block the caret is in.
-                            let targets: Vec<usize> = match self.block_sel {
-                                Some((a, b)) if b > a => {
-                                    (a..=b).filter(|i| *i < self.doc.blocks.len()).collect()
-                                }
-                                _ => self.selected_block.into_iter().collect(),
-                            };
-                            let ms = menu_state(&self.doc, &targets, self.block_selection);
+                            // the marking (word-exact, across lines), or the line the caret is in.
+                            let targets = self.targets();
+                            let ms = menu_state(&self.doc, &targets);
                             theme::ribbon_group(ui, "clipboard", &t, |ui| {
                                 ui.horizontal(|ui| {
                                     if theme::toolbar_icon_button(ui, theme::Icon::Cut, "Cut", false, &t)
@@ -2796,25 +3174,99 @@ impl NoteCraft {
                                     }
                                 });
                             });
-                            group_rule(ui, &t);
+                            theme::group_rule(ui, &t);
                             theme::ribbon_group(ui, "insert", &t, |ui| {
                                 ui.horizontal(|ui| {
                                     if theme::toolbar_icon_button(ui, theme::Icon::Attach, "Attach", false, &t).clicked() {
                                         // handled after the panel: the chooser blocks
                                         attach_clicked = true;
                                     }
-                                    if theme::toolbar_icon_button(ui, theme::Icon::Snip, "Snip", false, &t)
-                                        .on_hover_text(
-                                            "drag a region of the screen into this note (Ctrl+Shift+S)",
-                                        )
-                                        .clicked()
+                                    if theme::toolbar_icon_button(
+                                        ui,
+                                        theme::Icon::Snip,
+                                        "Snip — drag a region of the screen into this note (Ctrl+Shift+S)",
+                                        false,
+                                        &t,
+                                    )
+                                    .clicked()
                                     {
                                         // handled after the panel: the grabber is its own process
                                         snip_clicked = true;
                                     }
+                                    // Emoji and symbols: the picker is a window of its own (see
+                                    // `glyph_picker`), so the press only has to open it.
+                                    if theme::toolbar_icon_button(
+                                        ui,
+                                        theme::Icon::Symbol,
+                                        "Symbols — emoji, arrows, ticks and the rest (inserts at the caret)",
+                                        self.glyph_pick.is_some(),
+                                        &t,
+                                    )
+                                    .clicked()
+                                    {
+                                        glyph_clicked = true;
+                                    }
                                 });
                             });
-                            group_rule(ui, &t);
+                            // Where the walk got to belongs to a search: with no term there is nothing to
+                            // step through, so the group and its rule are not drawn at all. Two buttons
+                            // that can only say "search first" are clutter in a row this crowded.
+                            if let Some(needle) = self.last_needle.clone() {
+                                let total = self.find_in_doc(&needle).len();
+                                let pos = self.find_pos.min(total.saturating_sub(1));
+                                let label = find_label(pos, total, None);
+                                theme::group_rule(ui, &t);
+                                theme::ribbon_group(ui, "find", &t, |ui| {
+                                    ui.horizontal(|ui| {
+                                        if theme::toolbar_icon_button(
+                                            ui,
+                                            theme::Icon::FindPrev,
+                                            &format!(
+                                                "the match before this one · {label} (Shift+F3)"
+                                            ),
+                                            false,
+                                            &t,
+                                        )
+                                        .clicked()
+                                        {
+                                            find_step = Some(true);
+                                        }
+                                        // The term, between the two steps: the row is the only place the
+                                        // search is named, and a bare pair of chevrons says nothing about
+                                        // what is being stepped through. Capped, so a long query cannot push
+                                        // the groups after it off the row.
+                                        let font = FontId::new(11.0, theme::fam(theme::F_MONO));
+                                        let want = ui.fonts_mut(|f| {
+                                            f.layout_no_wrap(needle.clone(), font.clone(), t.dim)
+                                                .size()
+                                                .x
+                                        });
+                                        ui.add_sized(
+                                            [want.clamp(16.0, 110.0), 18.0],
+                                            egui::Label::new(
+                                                RichText::new(&needle)
+                                                    .family(theme::fam(theme::F_MONO))
+                                                    .size(11.0)
+                                                    .color(t.dim),
+                                            )
+                                            .truncate(),
+                                        )
+                                        .on_hover_text(format!("“{needle}” · {label}"));
+                                        if theme::toolbar_icon_button(
+                                            ui,
+                                            theme::Icon::FindNext,
+                                            &format!("the next match · {label} (F3)"),
+                                            false,
+                                            &t,
+                                        )
+                                        .clicked()
+                                        {
+                                            find_step = Some(false);
+                                        }
+                                    });
+                                });
+                            }
+                            theme::group_rule(ui, &t);
                             theme::ribbon_group(ui, "style", &t, |ui| {
                                 ui.horizontal(|ui| {
                                     for (icon, label, kind) in [
@@ -2837,12 +3289,14 @@ impl NoteCraft {
                                     }
                                 });
                             });
-                            // The row drops from the right when there is no room: at 820 pt the text
-                            // group alone would be cut mid-label ("Strik"), which is worse than not
-                            // offering it. Clipboard, insert and style always stay; text, size and mark
-                            // go together, so the bar never shows S/M/L without Bold and Italic.
-                            if ui.available_width() > 262.0 {
-                                group_rule(ui, &t);
+                            // The row drops from the right when there is no room — a group cut
+                            // mid-button is worse than a group not offered. The pictures made the
+                            // whole Pages row 741 pt instead of ~1050, so these thresholds are the
+                            // groups' own widths (`text` 146, `size` 122, `mark` 140) rather than the
+                            // old guesses: clipboard, insert and style always stay, and text, size
+                            // and mark go together, so the bar never shows S/M/L without Bold.
+                            if ui.available_width() > 150.0 {
+                                theme::group_rule(ui, &t);
                                 theme::ribbon_group(ui, "text", &t, |ui| {
                                     ui.horizontal(|ui| {
                                         for (icon, label, which, on) in [
@@ -2859,8 +3313,8 @@ impl NoteCraft {
                                         }
                                     });
                                 });
-                                if ui.available_width() > 110.0 {
-                                    group_rule(ui, &t);
+                                if ui.available_width() > 125.0 {
+                                    theme::group_rule(ui, &t);
                                     theme::ribbon_group(ui, "size", &t, |ui| {
                                         ui.horizontal(|ui| {
                                             for (label, step) in [("S", -1i8), ("M", 0), ("L", 1)] {
@@ -2878,8 +3332,8 @@ impl NoteCraft {
                                         });
                                     });
                                 }
-                                if ui.available_width() > 140.0 {
-                                    group_rule(ui, &t);
+                                if ui.available_width() > 145.0 {
+                                    theme::group_rule(ui, &t);
                                     theme::ribbon_group(ui, "mark", &t, |ui| {
                                         if let Some(mark) = ribbon_marks(ui, &ms.marks, &t) {
                                             self.pending_edit = Some(Edit::Mark(mark));
@@ -2902,7 +3356,7 @@ impl NoteCraft {
                                     }
                                 });
                             });
-                            group_rule(ui, &t);
+                            theme::group_rule(ui, &t);
                             theme::ribbon_group(ui, "due", &t, |ui| {
                                 ui.horizontal(|ui| {
                                     for (label, v) in [
@@ -2925,13 +3379,24 @@ impl NoteCraft {
                     }
                 });
             });
+        if let Some(back) = find_step {
+            self.find_next_in_page(back);
+        }
+        if glyph_clicked {
+            self.glyph_pick = Some(GlyphPick {
+                query: String::new(),
+                group: None,
+                focus: true,
+            });
+        }
         if attach_clicked {
             self.attach_dialog();
         }
         if snip_clicked {
-            self.snip_region();
+            self.snip_region(ctx);
         }
-        if paste_clicked && !self.paste_from_clipboard() {
+        let paste_place = self.paste_place(ctx);
+        if paste_clicked && !self.paste_from_clipboard(paste_place) {
             self.flash("no image or file on the clipboard");
         }
         if search_clicked {
@@ -3101,14 +3566,7 @@ impl NoteCraft {
 
     /// Re-read what the keyboard chip is driving: KWin's layout list, and — when KWin is running only
     /// one layout — the X11 keymap, which is the one this app's typing goes through.
-    ///
-    /// Linux only: elsewhere there is no KWin to ask and no `setxkbmap` to fall back on, so the chip
-    /// stays absent rather than spawning a subprocess on a timer that can never succeed.
     fn refresh_keyboard(&mut self) {
-        if !crate::platform::has_keyboard_layout_toggle() {
-            self.keylayout = None;
-            return;
-        }
         self.keylayout = keylayout::query();
         self.keylayout_at = Some(Instant::now());
         let kwin_can_switch = self
@@ -3226,6 +3684,10 @@ impl NoteCraft {
                     let right_w = clock_slot_w(ui) + 168.0;
                     let budget = (ui.available_width() - right_w).max(0.0);
                     let mut used = 0.0f32;
+                    // The find strip comes first: on a narrow bar the segments after it are dropped
+                    // right to left in order of importance, and this one is the only way back to the
+                    // other seventeen occurrences of the word just searched for.
+                    used += self.find_strip(ui, &t);
                     let (state_text, state_colour) = if self.dirty {
                         ("• unsaved".to_string(), t.warn)
                     } else {
@@ -3379,6 +3841,7 @@ impl NoteCraft {
         let mut new_notebook = false;
         let mut kill_nb: Option<String> = None;
         let mut kill_sec: Option<(String, String)> = None;
+        let mut rename: Option<RenameTarget> = None;
 
         egui::SidePanel::left("rail")
             .exact_width(206.0)
@@ -3419,7 +3882,7 @@ impl NoteCraft {
                                 .map(|s| s.pages.len())
                                 .sum();
                             let selected = self.nb.as_deref() == Some(nb.name.as_str());
-                            let row = theme::nav_row(
+                            let row = theme::rail_row(
                                 ui,
                                 &nb.name,
                                 selected,
@@ -3431,18 +3894,31 @@ impl NoteCraft {
                                 click_nb = Some(nb.name.clone());
                             }
                             row.context_menu(|ui| {
+                                if ui.button("Rename notebook…").clicked() {
+                                    rename = Some(RenameTarget::Notebook(nb.name.clone()));
+                                    ui.close();
+                                }
                                 if ui.button("Delete notebook…").clicked() {
                                     kill_nb = Some(nb.name.clone());
                                     ui.close();
                                 }
                             });
                         }
+                        // Directly under the last notebook, not pooled with the section actions at the
+                        // foot of the rail: it acts on the list it follows.
+                        if theme::rail_row(ui, "+ Notebook", false, None, 0.0, &t).clicked() {
+                            new_notebook = true;
+                        }
                         ui.add_space(10.0);
+                        // The heading belongs to the panel, not to the selection. It used to sit inside
+                        // the `if let` below, so with no notebook picked the rail dropped "Chapters"
+                        // entirely and left `+ Chapter` alone under `+ Notebook` — the second list had
+                        // no name, while `Notebooks` above it did.
+                        theme::section_label(ui, "Chapters", &t);
                         if let Some(nb) = self.vault.notebook(&self.nb.clone().unwrap_or_default()) {
-                            theme::section_label(ui, "Sections", &t);
                             for sec in &nb.sections {
                                 let selected = self.sec.as_deref() == Some(sec.name.as_str());
-                                let row = theme::nav_row(
+                                let row = theme::rail_row(
                                     ui,
                                     &sec.name,
                                     selected,
@@ -3454,47 +3930,78 @@ impl NoteCraft {
                                     click_sec = Some((nb.name.clone(), sec.name.clone()));
                                 }
                                 row.context_menu(|ui| {
-                                    if ui.button("Delete section…").clicked() {
+                                    if ui.button("Rename chapter…").clicked() {
+                                        rename = Some(RenameTarget::Section(
+                                            nb.name.clone(),
+                                            sec.name.clone(),
+                                        ));
+                                        ui.close();
+                                    }
+                                    if ui.button("Delete chapter…").clicked() {
                                         kill_sec = Some((nb.name.clone(), sec.name.clone()));
                                         ui.close();
                                     }
                                 });
                             }
+                        } else {
+                            // A named list with nothing under it is a dead end; say why it is empty.
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new("No notebook picked.\nClick one above.")
+                                    .family(theme::fam(theme::F_REG))
+                                    .size(12.5)
+                                    .color(t.faint),
+                            );
                         }
-                        ui.add_space(8.0);
-                        if theme::nav_row(ui, "+ Section", false, None, 8.0, &t).clicked() {
+                        // ...and the chapter action under the foot of the chapter list it acts on.
+                        if theme::rail_row(ui, "+ Chapter", false, None, 8.0, &t).clicked() {
                             new_section = true;
-                        }
-                        if theme::nav_row(ui, "+ Notebook", false, None, 0.0, &t).clicked() {
-                            new_notebook = true;
                         }
                     });
             });
 
         if let Some(n) = click_nb {
-            self.nb = Some(n);
-            self.sec = self
+            let first = self
                 .vault
-                .notebook(self.nb.as_deref().unwrap_or_default())
+                .notebook(&n)
                 .and_then(|nb| nb.sections.first().map(|s| s.name.clone()));
-            self.view = View::Pages;
+            match first {
+                Some(sec) => self.open_chapter(&n, &sec),
+                None => {
+                    self.nb = Some(n);
+                    self.sec = None;
+                    self.view = View::Pages;
+                }
+            }
         }
         if let Some((n, s)) = click_sec {
-            self.nb = Some(n);
-            self.sec = Some(s);
-            self.view = View::Pages;
+            self.open_chapter(&n, &s);
         }
         if new_section {
             self.new_section();
         }
         if new_notebook {
-            self.run_command("New notebook");
+            self.run_command("New notebook", ctx);
         }
         if let Some(name) = kill_nb {
             self.confirm = Some(Confirm::DeleteNotebook(name));
         }
         if let Some((nb, sec)) = kill_sec {
             self.confirm = Some(Confirm::DeleteSection(nb, sec));
+        }
+        if let Some(target) = rename {
+            // the field starts at the name it has now, whole and selected (the dialog does that)
+            self.rename_buf = match &target {
+                RenameTarget::Page(p) => self
+                    .vault
+                    .page_index(p)
+                    .and_then(|i| self.vault.pages.get(i))
+                    .map(|pg| pg.title.clone())
+                    .unwrap_or_default(),
+                RenameTarget::Notebook(n) => n.clone(),
+                RenameTarget::Section(_, s) => s.clone(),
+            };
+            self.rename_for = Some(target);
         }
     }
 
@@ -3529,15 +4036,26 @@ impl NoteCraft {
                 // What the strip *was*, one letter per line: two identical arrows at the window edge
                 // said nothing about which panel came back. egui cannot rotate text, and a 26 pt strip
                 // cannot hold a word, so the label is stacked — the same trick `section_label` uses
-                // for tracking, only vertical.
-                let name = if rail { "NOTEBOOKS" } else { "PAGES" };
+                // for tracking, only vertical. Set bold and one size up from the 9.5 pt mono it used
+                // to be: at 26 pt wide the strip can afford it, and a faint hairline of letters did
+                // not say which panel came back any better than the arrows did.
+                // The strip names the tier the panel belongs to, in the app's own words
+                // (Notebook → Chapter → Page). The rail's strip says NOTEBOOKS; this panel is the
+                // selected *chapter*'s pages, so a bare "PAGES" here left the middle tier unnamed.
+                let name = if rail { "NOTEBOOKS" } else { "CHAPTERS" };
                 let ink = if resp.hovered() { t.dim } else { t.ghost };
                 for (n, ch) in name.chars().enumerate() {
                     ui.painter().text(
-                        egui::Pos2::new(rect.center().x, rect.top() + 28.0 + n as f32 * 12.0),
+                        egui::Pos2::new(
+                            rect.center().x,
+                            rect.top() + 28.0 + n as f32 * theme::FOLDED_LABEL_STEP,
+                        ),
                         egui::Align2::CENTER_TOP,
                         ch,
-                        FontId::new(9.5, theme::fam(theme::F_MONO)),
+                        FontId::new(
+                            theme::FOLDED_LABEL_SIZE,
+                            theme::fam(theme::FOLDED_LABEL_FONT),
+                        ),
                         ink,
                     );
                 }
@@ -3570,6 +4088,37 @@ impl NoteCraft {
         let mut land: Option<(PathBuf, String, Option<usize>)> = None;
         let mut search_all: Option<String> = None;
         let mut action: Option<(&'static str, PathBuf)> = None;
+        // a page being sent to another notebook/section: the target rides beside the action, so the
+        // view does not have to be switched to the destination to know where the page is going
+        let mut move_page_to: Option<(PathBuf, String, String)> = None;
+        // chapter actions taken in this column — it lists chapters too, so it can pick, rename and
+        // delete them without reaching back to the rail
+        let mut pick_sec: Option<String> = None;
+        let mut rename_sec: Option<String> = None;
+        let mut kill_sec: Option<String> = None;
+
+        // The column is two lists, so it always has a chapter ticked: the live one, or the notebook's
+        // first. Without that a fresh window listed the chapters and then no pages under them.
+        let nb_name = self.nb.clone().unwrap_or_default();
+        let chapters: Vec<(String, usize)> = self
+            .vault
+            .notebook(&nb_name)
+            .map(|nb| {
+                nb.sections
+                    .iter()
+                    .map(|s| (s.name.clone(), s.pages.len()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let live_sec = self
+            .sec
+            .clone()
+            .filter(|s| chapters.iter().any(|(n, _)| n == s))
+            .or_else(|| chapters.first().map(|(n, _)| n.clone()));
+        if self.sec != live_sec {
+            self.sec = live_sec.clone();
+        }
+        let cur_sec = live_sec.unwrap_or_default();
 
         egui::SidePanel::left("pages")
             .exact_width(268.0)
@@ -3580,184 +4129,276 @@ impl NoteCraft {
                     .inner_margin(Margin::symmetric(8, 10)),
             )
             .show(ctx, |ui| {
-                // The field filters the section you are in — the vault-wide search is Ctrl+K. Every
+                // The field filters the chapter you are in — the vault-wide search is Ctrl+K. Every
                 // matching page is one row, however many times the words appear on it.
                 let (all_hits, _total) = if searching {
                     self.vault.search(&self.search, 1000)
                 } else {
                     (Vec::new(), 0)
                 };
-                let scope = match (&self.nb, &self.sec) {
-                    (Some(n), Some(s)) => Some((n.clone(), s.clone())),
-                    _ => None,
-                };
-                let mut hits: Vec<&vault::Hit> = all_hits
+                let hits_all: Vec<&vault::Hit> = all_hits
                     .iter()
-                    .filter(|h| match &scope {
-                        Some((n, s)) => {
-                            let p = &self.vault.pages[h.page];
-                            &p.notebook == n && &p.section == s
-                        }
-                        None => true,
+                    .filter(|h| {
+                        let p = &self.vault.pages[h.page];
+                        p.notebook == nb_name && p.section == cur_sec
                     })
                     .collect();
-                let elsewhere = all_hits.len().saturating_sub(hits.len());
-                let found = hits.len();
-                hits.truncate(SEARCH_ROWS);
-                ui.horizontal(|ui| {
-                    let label = if searching {
-                        match found {
-                            0 => "Search · no pages here".to_string(),
-                            n if n > hits.len() => format!("Search · {} pages (showing {})", n, hits.len()),
-                            n => format!("Search · {n} page{}", if n == 1 { "" } else { "s" }),
-                        }
-                    } else {
-                        self.sec.clone().unwrap_or_else(|| "Pages".into())
-                    };
-                    ui.label(
-                        RichText::new(label)
-                            .family(theme::fam(theme::F_SEMI))
-                            .size(13.5)
-                            .color(t.heading),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if theme::icon_button(ui, "+", "new page (Ctrl+N)", &t).clicked() {
-                            action = Some(("new", PathBuf::new()));
-                        }
-                        if theme::icon_button(
-                            ui,
-                            "←",
-                            "fold the page list away (Ctrl+2)",
-                            &t,
-                        )
-                        .clicked()
-                        {
-                            self.pages_open = false;
-                        }
-                    });
-                });
-                // The filter lives on the panel it filters. In the toolbar it read as "filter the
-                // note", which is what the find row is for.
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    let clear = !self.search.trim().is_empty();
-                    let w = (ui.available_width() - if clear { 24.0 } else { 0.0 }).max(60.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.search)
-                            .desired_width(w)
-                            .hint_text("filter pages…")
-                            .font(egui::TextStyle::Small),
-                    );
-                    if clear && theme::icon_button(ui, "×", "clear the filter", &t).clicked() {
-                        self.search.clear();
-                    }
-                });
-                ui.add_space(2.0);
+                let elsewhere = all_hits.len().saturating_sub(hits_all.len());
+                let found = hits_all.len();
+                let hits: Vec<&vault::Hit> = hits_all.into_iter().take(SEARCH_ROWS).collect();
 
                 egui::ScrollArea::vertical()
                     .id_salt("page_list")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        if searching {
-                            for h in &hits {
-                                let p = &self.vault.pages[h.page];
-                                let selected = self.page.as_deref() == Some(p.path.as_path());
-                                let kind = match h.kind {
-                                    HitKind::Title => "title",
-                                    HitKind::Tag => "tag",
-                                    HitKind::Body => "body",
-                                };
-                                let badge = if h.count > 1 {
-                                    format!("{kind} · {} matches", h.count)
-                                } else {
-                                    kind.to_string()
-                                };
-                                let resp =
-                                    page_row(ui, &p.title, &h.snippet, &badge, h.mark, selected, &t);
-                                if resp.clicked() {
-                                    land = Some((p.path.clone(), h.needle.clone(), h.line));
-                                }
-                                resp.on_hover_text("open this page at the match");
-                            }
-                            if elsewhere > 0 {
-                                ui.add_space(6.0);
-                                let resp = page_row(
+                        // Rows must be exactly as wide as the viewport. Content inside a ScrollArea
+                        // can measure wider than its clip (a row's badge text did), and
+                        // `available_width` then hands every row ~14 pt more than the column has:
+                        // right-hand badges were painted past the clip and vanished.
+                        let view_w = (ui.clip_rect().right() - ui.max_rect().left()).max(40.0);
+                        if ui.available_width() > view_w {
+                            ui.set_max_width(view_w);
+                        }
+                        // Two lists, the shape column one uses for notebooks and chapters: a small
+                        // heading, its rows, then the list one tier down under its own heading.
+                        ui.horizontal(|ui| {
+                            theme::section_label(ui, "Chapters", &t);
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if theme::icon_button(
                                     ui,
-                                    &format!("{elsewhere} more outside this section"),
-                                    "search the whole vault (Ctrl+K)",
-                                    "",
-                                    None,
-                                    false,
+                                    "←",
+                                    "fold the page list away (Ctrl+2)",
                                     &t,
-                                );
-                                if resp.clicked() {
-                                    search_all = Some(self.search.clone());
+                                )
+                                .clicked()
+                                {
+                                    self.pages_open = false;
                                 }
-                            }
-                        } else {
-                            let sec_pages = match (&self.nb, &self.sec) {
-                                (Some(n), Some(s)) => self.vault.section_pages(n, s),
-                                _ => Vec::new(),
+                            });
+                        });
+                        if chapters.is_empty() {
+                            ui.add_space(6.0);
+                            let hint = if self.nb.is_some() {
+                                "No chapters in this notebook yet."
+                            } else {
+                                "No notebook picked.\nClick one in the rail."
                             };
-                            for (pos, idx) in sec_pages.iter().enumerate() {
-                                let p = &self.vault.pages[*idx];
-                                let selected = self.page.as_deref() == Some(p.path.as_path());
-                                let meta = page_meta_line(p);
-                                let resp = page_row(ui, &p.title, &meta, "", None, selected, &t);
-                                if resp.clicked() {
-                                    open = Some(p.path.clone());
+                            ui.label(
+                                RichText::new(hint)
+                                    .family(theme::fam(theme::F_REG))
+                                    .size(12.5)
+                                    .color(t.faint),
+                            );
+                            return;
+                        }
+                        for (sec_name, page_count) in &chapters {
+                            let selected = self.sec.as_deref() == Some(sec_name.as_str());
+                            let row = theme::rail_row(
+                                ui,
+                                sec_name,
+                                selected,
+                                Some(page_count.to_string()),
+                                0.0,
+                                &t,
+                            );
+                            if row.clicked() {
+                                pick_sec = Some(sec_name.clone());
+                            }
+                            row.context_menu(|ui| {
+                                if ui.button("Rename chapter…").clicked() {
+                                    rename_sec = Some(sec_name.clone());
+                                    ui.close();
                                 }
-                                resp.context_menu(|ui| {
-                                    if ui.button("Rename").clicked() {
-                                        action = Some(("rename", p.path.clone()));
-                                        ui.close();
+                                if ui.button("Delete chapter…").clicked() {
+                                    kill_sec = Some(sec_name.clone());
+                                    ui.close();
+                                }
+                            });
+                        }
+                        ui.add_space(10.0);
+                        theme::section_label(ui, "Pages", &t);
+                        // A filter can still arrive from a tag chip (`#tag`), so a live one says so
+                        // and offers the way out. There is no text field: this column is the list of
+                        // the chapter's pages, and typing to search is what Ctrl+K is for.
+                        if searching {
+                            let q = self.search.trim().to_owned();
+                            let line = match found {
+                                0 => format!("“{q}” · no pages here"),
+                                n if n > hits.len() => {
+                                    format!("“{q}” · {} pages (showing {})", n, hits.len())
+                                }
+                                n => format!("“{q}” · {n} page{}", if n == 1 { "" } else { "s" }),
+                            };
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(line)
+                                            .family(theme::fam(theme::F_REG))
+                                            .size(11.5)
+                                            .color(t.faint),
+                                    )
+                                    .truncate(),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if theme::chip_small(ui, "×", t.faint, &t)
+                                            .on_hover_text("clear the tag filter")
+                                            .clicked()
+                                        {
+                                            self.search.clear();
+                                        }
+                                    },
+                                );
+                            });
+                        }
+                        ui.add_space(2.0);
+                        // the pages of the chapter ticked above, indented the way chapters sit under
+                        // notebooks in the rail
+                        ui.indent("chapter_pages", |ui| {
+                            if searching {
+                                for h in &hits {
+                                    let p = &self.vault.pages[h.page];
+                                    let selected = self.page.as_deref() == Some(p.path.as_path());
+                                    let kind = match h.kind {
+                                        HitKind::Title => "title",
+                                        HitKind::Tag => "tag",
+                                        HitKind::Body => "body",
+                                    };
+                                    let badge = if h.count > 1 {
+                                        format!("{kind} · {} matches", h.count)
+                                    } else {
+                                        kind.to_string()
+                                    };
+                                    let resp = page_row(
+                                        ui, &p.title, &h.snippet, &badge, h.mark, selected, &t,
+                                    );
+                                    if resp.clicked() {
+                                        land = Some((p.path.clone(), h.needle.clone(), h.line));
                                     }
-                                    if ui.button("Duplicate").clicked() {
-                                        action = Some(("duplicate", p.path.clone()));
-                                        ui.close();
+                                    resp.on_hover_text("open this page at the match");
+                                }
+                                if elsewhere > 0 {
+                                    ui.add_space(6.0);
+                                    let resp = page_row(
+                                        ui,
+                                        &format!("{elsewhere} more outside this chapter"),
+                                        "search the whole vault (Ctrl+K)",
+                                        "",
+                                        None,
+                                        false,
+                                        &t,
+                                    );
+                                    if resp.clicked() {
+                                        search_all = Some(self.search.clone());
                                     }
-                                    if ui.button("Move up").clicked() {
-                                        action = Some(("up", p.path.clone()));
-                                        ui.close();
+                                }
+                            } else {
+                                let sec_pages = self.vault.section_pages(&nb_name, &cur_sec);
+                                for idx in &sec_pages {
+                                    let p = &self.vault.pages[*idx];
+                                    let selected = self.page.as_deref() == Some(p.path.as_path());
+                                    let meta = page_meta_line(p);
+                                    let resp = page_row(ui, &p.title, &meta, "", None, selected, &t);
+                                    if resp.clicked() {
+                                        open = Some(p.path.clone());
                                     }
-                                    if ui.button("Move down").clicked() {
-                                        action = Some(("down", p.path.clone()));
-                                        ui.close();
-                                    }
-                                    if ui.button("Delete").clicked() {
-                                        action = Some(("delete", p.path.clone()));
-                                        ui.close();
-                                    }
-                                    ui.menu_button("Move to…", |ui| {
-                                        let nbs = self.vault.notebooks.clone();
-                                        for nb in nbs {
-                                            for sec in nb.sections {
-                                                let label = format!("{} / {}", nb.name, sec.name);
-                                                if ui.button(label).clicked() {
-                                                    action = Some(("move", p.path.clone()));
-                                                    self.nb = Some(nb.name.clone());
-                                                    self.sec = Some(sec.name.clone());
-                                                    ui.close();
+                                    resp.context_menu(|ui| {
+                                        if ui.button("Rename").clicked() {
+                                            action = Some(("rename", p.path.clone()));
+                                            ui.close();
+                                        }
+                                        if ui.button("Duplicate").clicked() {
+                                            action = Some(("duplicate", p.path.clone()));
+                                            ui.close();
+                                        }
+                                        if ui.button("Move up").clicked() {
+                                            action = Some(("up", p.path.clone()));
+                                            ui.close();
+                                        }
+                                        if ui.button("Move down").clicked() {
+                                            action = Some(("down", p.path.clone()));
+                                            ui.close();
+                                        }
+                                        if ui.button("Delete").clicked() {
+                                            action = Some(("delete", p.path.clone()));
+                                            ui.close();
+                                        }
+                                        ui.menu_button("Move to…", |ui| {
+                                            ui.set_width(220.0);
+                                            let nbs = self.vault.notebooks.clone();
+                                            let from = p.path.parent().map(|d| d.to_path_buf());
+                                            for nb in nbs {
+                                                for sec in nb.sections {
+                                                    // the chapter it is already in is offered as a
+                                                    // tick, not as a move: moving a page onto itself
+                                                    // used to rename its file to "… 2"
+                                                    let in_here = from.as_deref()
+                                                        == Some(
+                                                            self.vault
+                                                                .root
+                                                                .join(vault::sanitize(&nb.name))
+                                                                .join(vault::sanitize(&sec.name))
+                                                                .as_path(),
+                                                        );
+                                                    let label =
+                                                        format!("{} / {}", nb.name, sec.name);
+                                                    if in_here {
+                                                        ui.label(
+                                                            RichText::new(format!("·  {label}"))
+                                                                .family(theme::fam(theme::F_REG))
+                                                                .size(12.5)
+                                                                .color(t.faint),
+                                                        );
+                                                    } else if ui.button(label).clicked() {
+                                                        move_page_to = Some((
+                                                            p.path.clone(),
+                                                            nb.name.clone(),
+                                                            sec.name.clone(),
+                                                        ));
+                                                        ui.close();
+                                                    }
                                                 }
                                             }
-                                        }
+                                        });
                                     });
-                                    let _ = pos;
-                                });
+                                }
+                                if sec_pages.is_empty() {
+                                    ui.add_space(6.0);
+                                    ui.label(
+                                        RichText::new("No pages here yet.\nCtrl+N creates one.")
+                                            .family(theme::fam(theme::F_REG))
+                                            .size(12.5)
+                                            .color(t.faint),
+                                    );
+                                }
                             }
-                            if sec_pages.is_empty() {
-                                ui.add_space(16.0);
-                                ui.label(
-                                    RichText::new("No pages here yet.\nCtrl+N creates one.")
-                                        .family(theme::fam(theme::F_REG))
-                                        .size(12.5)
-                                        .color(t.faint),
-                                );
+                            // the action sits under the foot of the list it acts on, like
+                            // "+ Notebook" and "+ Chapter" in the rail
+                            if theme::rail_row(ui, "+ Page", false, None, 0.0, &t).clicked() {
+                                action = Some(("new", PathBuf::new()));
                             }
-                        }
+                        });
                     });
             });
 
+        if let Some(sec) = pick_sec {
+            let nb = self.nb.clone().unwrap_or_default();
+            self.open_chapter(&nb, &sec);
+        }
+        if let Some(sec) = rename_sec {
+            self.rename_buf = sec.clone();
+            self.rename_for = Some(RenameTarget::Section(
+                self.nb.clone().unwrap_or_default(),
+                sec,
+            ));
+        }
+        if let Some(sec) = kill_sec {
+            self.confirm = Some(Confirm::DeleteSection(
+                self.nb.clone().unwrap_or_default(),
+                sec,
+            ));
+        }
         if let Some((path, needle, line)) = land {
             // F3 repeats what was typed in the page filter, not the line the hit sat on
             if !self.search.trim().is_empty() {
@@ -3785,7 +4426,7 @@ impl NoteCraft {
                         .page_index(&path)
                         .map(|i| self.vault.pages[i].title.clone())
                         .unwrap_or_default();
-                    self.rename_for = Some(path);
+                    self.rename_for = Some(RenameTarget::Page(path));
                 }
                 "delete" => {
                     // the target lives in `move_for` until the confirm dialog is done with it
@@ -3831,22 +4472,31 @@ impl NoteCraft {
                         }
                     }
                 }
-                "move" => {
-                    if let (Some(n), Some(s)) = (self.nb.clone(), self.sec.clone()) {
-                        // Write the buffer out *before* the move: the page's path is about to change,
-                        // and a save on the way into the new file would otherwise recreate the old
-                        // path (two copies, drifting apart) — the rename path guards exactly this.
-                        self.flush_open_page(&path);
-                        if let Ok(newp) = Ops::move_page(&path, &self.vault.root, &n, &s) {
-                            self.vault.reload();
-                            // claim the new path before open_page can flush anything
-                            self.page = Some(newp.clone());
-                            self.open_page(&newp, false);
-                            self.flash(format!("moved to {n} / {s}"));
-                        }
-                    }
-                }
                 _ => {}
+            }
+        }
+        if let Some((path, nb, sec)) = move_page_to {
+            // Write the buffer out *before* the move: the page's path is about to change, and a save
+            // on the way into the new file would otherwise recreate the old path (two copies,
+            // drifting apart) — the rename path guards exactly this.
+            self.flush_open_page(&path);
+            match Ops::move_page(&path, &self.vault.root, &nb, &sec) {
+                Ok(newp) => {
+                    let was_open = self.page.as_deref() == Some(path.as_path());
+                    self.vault.reload();
+                    if was_open {
+                        // the note you are reading follows the move; moving any other note leaves you
+                        // where you were, so a move does not also change the notebook on screen
+                        self.dirty = false;
+                        self.last_edit = None;
+                        self.page = Some(newp.clone());
+                        self.nb = Some(nb.clone());
+                        self.sec = Some(sec.clone());
+                        self.open_page(&newp, false);
+                    }
+                    self.flash(format!("moved to {nb} / {sec}"));
+                }
+                Err(e) => self.flash(format!("move failed: {e}")),
             }
         }
     }
@@ -4361,7 +5011,7 @@ impl NoteCraft {
             let _ = std::fs::remove_file(&shot.temp);
             dnd_log("snip: cancelled at the crop step");
             self.flash("snip cancelled");
-            self.focus_main_window(ctx);
+            self.focus_main_window();
             return;
         }
         // Dragging outside the picture is not a crop: leave the overlay up to retry.
@@ -4383,21 +5033,19 @@ impl NoteCraft {
         match attach::snippet_for_snip(&page, &cropped) {
             Ok(snippet) => {
                 dnd_log(&format!("snip: attached {w}x{h} from {x},{y}"));
-                self.append_block(&[snippet]);
+                self.insert_snippets(&[snippet], None);
                 self.flash(format!("snip {w}×{h} added to the note"));
             }
             Err(e) => self.flash(format!("cannot save the snip: {e}")),
         }
-        self.focus_main_window(ctx);
+        self.focus_main_window();
     }
 
-    /// Hand focus back to the notes window after an overlay closes.
-    ///
-    /// Overlays (crop, annotate) are drawn inside the notes window itself, so no window manager
-    /// call is involved any more: this only asks the toolkit to raise and focus us, which works on
-    /// X11 and Wayland alike.
-    fn focus_main_window(&self, ctx: &egui::Context) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+    /// Hand focus back to the notes window after the overlay closes.
+    fn focus_main_window(&self) {
+        if let Some(w) = own_window() {
+            set_window_visible(&w, true);
+        }
     }
 
     /// Open the annotator for the picture `reference` (the block is remembered in
@@ -4423,6 +5071,7 @@ impl NoteCraft {
             strokes: Vec::new(),
             current: None,
         });
+        self.focus_main_window();
     }
 
     /// The annotator's own fullscreen overlay, sized like the image being drawn on.
@@ -4653,7 +5302,7 @@ impl NoteCraft {
             self.annotate_from_block = None;
             dnd_log("annotate: cancelled");
             self.flash("annotations discarded");
-            self.focus_main_window(ctx);
+            self.focus_main_window();
             return;
         }
         if !save {
@@ -4663,7 +5312,7 @@ impl NoteCraft {
         if a.strokes.is_empty() {
             dnd_log("annotate: nothing drawn, left alone");
             self.flash("nothing drawn — image unchanged");
-            self.focus_main_window(ctx);
+            self.focus_main_window();
             return;
         }
         let (n, size) = (a.strokes.len(), (a.img.width(), a.img.height()));
@@ -4694,7 +5343,7 @@ impl NoteCraft {
             }
             Err(e) => self.flash(format!("cannot save the annotated picture: {e}")),
         }
-        self.focus_main_window(ctx);
+        self.focus_main_window();
     }
 
     /// The editor, working on the page's **document**: one block per row, its text edit holding only
@@ -4707,14 +5356,26 @@ impl NoteCraft {
         // ~15 pt of gap to every paragraph, so text read as double-spaced.
         ui.spacing_mut().interact_size.y = 0.0;
         ui.spacing_mut().item_spacing.y = 0.0;
+        // The note's column, taken once for the whole frame. Every picture is measured against
+        // *this*, never against `ui.available_width()` at the block itself: a caption row wider than
+        // the column (a long file name plus its buttons) stretched the layout's content width, and the
+        // block drawn after it — usually the last picture in the note — then sized itself against the
+        // stretched width and came out ~70 pt wider than the pictures above it.
+        let column_w = ui.available_width();
+        self.note_col = Some(ui.max_rect());
         let mut changed = false;
         let mut cmd: Option<Edit> = None;
+        // a table row/column command from a cell's menu: block, and what to do to its grid
+        let mut table_op: Option<(usize, TableOp)> = None;
         // a word the context menu was asked to add to the spelling ignore list
         let mut ignore_word: Option<String> = None;
         // a misspelled word the context menu was asked to correct: block, range in its text, and the
         // suggestion to put there
         let mut fix_word: Option<(usize, std::ops::Range<usize>, String)> = None;
         let mut pic: Option<PicAction> = None;
+        // a mark chosen from the right-click menu, and whether it asked for the picker
+        let mut glyph_insert: Option<char> = None;
+        let mut glyph_open = false;
         let mut clip: Option<ClipAction> = None;
         let mut annotate: Option<(usize, String)> = None;
         // a picture asked to be cropped: handled after the panel, like annotate (the overlay needs the
@@ -4725,21 +5386,30 @@ impl NoteCraft {
         let mut toggle_todo: Option<usize> = None;
         // Enter / Backspace at a block edge are document operations, settled after the loop
         let mut join_block: Option<usize> = None;
+        // Delete at the end of a block: the same join, taking the block below into this one
+        let mut join_next: Option<usize> = None;
         let mut split_block: Option<(usize, Vec<Vec<doc::Run>>)> = None;
         let mut caret_to: Option<(usize, usize)> = None;
         // a marking that spans blocks: the keys that act on it are taken before any TextEdit can
         // see them, or the focused block would act on its own little selection first
-        let mut drop_blocks: Option<(usize, usize)> = None;
-        let mut typed_over: Option<((usize, usize), String)> = None;
+        // the marking is taken out of the document *after* the loop (this frame's drawing must not
+        // see the blocks move), then the typed text goes in where it was
+        let mut delete_marked = false;
+        let mut typed_over: Option<String> = None;
         let mut block_rects: Vec<(usize, egui::Rect)> = Vec::new();
-        let mut dragged_block: Option<usize> = None;
+        // every text line as it was drawn this frame: where a pointer position maps to a character,
+        // and what the line already shows as a selection of its own
+        let mut line_hits: Vec<LineHit> = Vec::new();
         // a picture whose corner grip was released this frame
         let mut resize_commit: Option<(usize, u32)> = None;
         // a picture dragged off its block: handed to the XDND drag source after the loop
         let mut drag_out: Option<PathBuf> = None;
-        // Shift+Up / Shift+Down marks whole lines from the block the caret is in: every line is its
-        // own TextEdit, so this is the keyboard way to mark across them (and the keys are taken
-        // before the focused editor can turn them into a one-line selection)
+        // a picture released while it was being moved inside the note: placed after the loop
+        let mut img_move_stop: Option<usize> = None;
+        // Shift+Up / Shift+Down grows the marking from the caret, word-exact like a drag: it takes
+        // the rest of this line and stops at the caret's line below (or the end of the line above).
+        // Every line is its own TextEdit, so this is the keyboard's way across them — and the keys
+        // are taken before the focused editor can turn them into a one-line selection.
         {
             let (up, down) = ui.input_mut(|i| {
                 (
@@ -4748,47 +5418,78 @@ impl NoteCraft {
                 )
             });
             if up || down {
-                if let Some(anchor) = self.selected_block {
-                    let (lo, hi) = self.block_sel.unwrap_or((anchor, anchor));
-                    let (lo, hi) = if down {
-                        (lo, hi + 1)
+                // the end that stays put is the one in the line the marking was started in; the other
+                // end is the one the arrows move
+                let grown = match self.mark {
+                    Some(m) if m.from == m.a.0 => Some((m.from, m.a, m.b)),
+                    Some(m) => Some((m.from, m.b, m.a)),
+                    None => self
+                        .caret
+                        .or_else(|| self.selected_block.map(|b| (b, 0)))
+                        .map(|p| (p.0, p, p)),
+                };
+                if let Some((from, fixed, moving)) = grown {
+                    let last = self.doc.blocks.len().saturating_sub(1);
+                    let next = if down {
+                        (moving.0 < last).then_some((moving.0 + 1, 0))
+                    } else if moving.0 > 0 {
+                        let p = moving.0 - 1;
+                        let len = self
+                            .doc
+                            .blocks
+                            .get(p)
+                            .map(|b| doc::run_len(&b.runs))
+                            .unwrap_or(0);
+                        Some((p, len))
                     } else {
-                        (lo.saturating_sub(1), hi)
+                        None
                     };
-                    let hi = hi.min(self.doc.blocks.len().saturating_sub(1));
-                    if hi > lo {
-                        self.block_sel = Some((lo, hi));
-                        caret_to = Some((if down { hi } else { lo }, 0));
+                    if let Some(moving) = next {
+                        self.mark = Some(doc::Mark::new(from, fixed, moving));
+                        caret_to = Some(moving);
                     }
                 }
             }
         }
-        if let Some((a, b)) = self.block_sel {
+        if self.mark.is_some() {
+            // `Event::Copy`/`Event::Cut` as well as the keys: on X11 through egui-winit the shortcut
+            // arrives as the event and never as a key press with a modifier, so the keys alone left
+            // Ctrl+C to the focused `TextEdit` (which copied one line of the marking).
+            let (copy_event, cut_event) = ui.input(|i| {
+                let mut c = false;
+                let mut x = false;
+                for e in &i.events {
+                    match e {
+                        egui::Event::Copy => c = true,
+                        egui::Event::Cut => x = true,
+                        _ => {}
+                    }
+                }
+                (c, x)
+            });
             let (del, copy, cut) = ui.input_mut(|i| {
                 (
                     i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)
                         || i.consume_key(egui::Modifiers::NONE, egui::Key::Delete),
-                    i.consume_key(egui::Modifiers::COMMAND, egui::Key::C),
-                    i.consume_key(egui::Modifiers::COMMAND, egui::Key::X),
+                    copy_event || i.consume_key(egui::Modifiers::COMMAND, egui::Key::C),
+                    cut_event || i.consume_key(egui::Modifiers::COMMAND, egui::Key::X),
                 )
             });
-            if del {
-                drop_blocks = Some((a, b));
-            }
             if copy || cut {
-                let text: Vec<String> = (a..=b)
-                    .filter_map(|i| self.doc.blocks.get(i).map(|blk| blk.text()))
-                    .collect();
-                ui.ctx().copy_text(text.join("\n"));
-                self.flash(if cut {
-                    format!("cut {} lines", text.len())
-                } else {
-                    format!("copied {} lines", text.len())
-                });
+                if let Some((targets, text)) = self.editor_selection() {
+                    // written now for the common case, and again after the blocks are drawn so it is
+                    // the marking, not the focused line, that survives the frame
+                    ui.ctx().copy_text(text.clone());
+                    self.clip_after = Some(text);
+                    self.flash(format!(
+                        "{} {}",
+                        if cut { "cut" } else { "copied" },
+                        clip_summary(&targets)
+                    ));
+                }
             }
-            if cut {
-                // the same key that copies a one-line marking cuts it (the menu's Cut does too)
-                drop_blocks = Some((a, b));
+            if del || cut {
+                delete_marked = true;
             }
             // typing replaces the marking, as in any editor
             let typed = ui.input_mut(|i| {
@@ -4803,10 +5504,10 @@ impl NoteCraft {
                 t
             });
             if !typed.is_empty() {
-                typed_over = Some(((a, b), typed));
+                typed_over = Some(typed);
             }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                self.block_sel = None;
+                self.mark = None;
             }
         }
         let all_tags: Vec<String> = self
@@ -4881,7 +5582,7 @@ impl NoteCraft {
                             return (None, None, 0.0, 0.0);
                         }
                     };
-                    let box_w = (ui.available_width() - 40.0).max(120.0);
+                    let box_w = (column_w - (GUTTER - 10.0) - 40.0).max(120.0);
                     // While the corner is dragged the picture takes its width from the pointer, not
                     // from the block: the stored width is written only when the drag ends, so a drag
                     // that is abandoned leaves the picture as it was.
@@ -4943,6 +5644,16 @@ impl NoteCraft {
                                 Some(&format!("cannot display {reference}")),
                             ),
                         }
+                    }
+                    // While it is being carried the picture is washed back towards the page's own
+                    // colour: the block has not moved yet, and the eye should follow the target, not
+                    // the thing it came from.
+                    if self.img_move == Some(i) {
+                        ui.painter().rect_filled(
+                            rect,
+                            CornerRadius::same(6),
+                            t.bg.gamma_multiply(0.62),
+                        );
                     }
                     let selected = self.selected_image == Some(i);
                     // The drag running on this picture, if any: the width follows the pointer, so the
@@ -5030,13 +5741,44 @@ impl NoteCraft {
                     // the gesture that means "give this to another app", and the one the drop-target
                     // side has always answered in the other direction. The position is checked as well
                     // as the responses, so a press on the handle can never leave as a dragged file.
+                    let grip_taken = ui
+                        .input(|inp| inp.pointer.interact_pos())
+                        .is_some_and(|p| grip.expand(2.0).contains(p));
+                    if resp.drag_started() {
+                        dnd_log(&format!(
+                            "img drag: start block={i} grip={grip_taken} grip_dragged={} ctrl={}",
+                            hresp.dragged(),
+                            ui.input(|inp| inp.modifiers.command || inp.modifiers.ctrl)
+                        ));
+                    }
                     if resp.drag_started()
                         && !hresp.dragged()
-                        && !ui
-                            .input(|inp| inp.pointer.interact_pos())
-                            .is_some_and(|p| grip.expand(2.0).contains(p))
+                        && !grip_taken
                     {
-                        drag_out = Some(abs_path.clone());
+                        // Two gestures live on the same press. Held with Ctrl (or Cmd) it is the old
+                        // one — hand the file to another application over XDND. Plain, it picks the
+                        // picture up and moves it inside this note, against the same target a dropped
+                        // file gets: the rule, the caret, the edge scroll.
+                        let to_other_app =
+                            ui.input(|inp| inp.modifiers.command || inp.modifiers.ctrl);
+                        if to_other_app {
+                            drag_out = Some(abs_path.clone());
+                        } else {
+                            self.img_move = Some(i);
+                            self.selected_image = Some(i);
+                            self.flash("moving the picture — release to place it, Esc to put it back");
+                        }
+                    }
+                    // The pointer while a picture is being carried: the target is read from it the
+                    // same way a dropped file's is (a real drag, so egui's pointer is live).
+                    if self.img_move == Some(i) {
+                        if let Some(p) = ui.input(|inp| inp.pointer.interact_pos()) {
+                            self.drop_at = Some(p);
+                        }
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                        if resp.drag_stopped() {
+                            img_move_stop = Some(i);
+                        }
                     }
                     (shown, Some(intrinsic), disp.x, rect.left())
                 })
@@ -5090,12 +5832,35 @@ impl NoteCraft {
                         egui::Layout::left_to_right(egui::Align::Center),
                         |ui| {
                             ui.add_space(lead);
-                            ui.label(
-                                RichText::new(caption)
-                                    .family(theme::fam(theme::F_MONO))
-                                    .size(10.5)
-                                    .color(t.faint),
+                            // The five buttons that follow take 30 pt each and must never be pushed
+                            // out of the column, so the words before them are given only what is
+                            // left and are ellipsised. A long file name used to make this row wider
+                            // than the note, which stretched the layout and widened the block under it.
+                            // the buttons (5 × 30 pt) and the short readouts after the name — the
+                            // file's own pixels, the width while it is dragged, the crop — all keep
+                            // their room; the name is what gives way
+                            let icons_w = 5.0 * 30.0 + 4.0 * ui.spacing().item_spacing.x;
+                            let extras_w = if dims.is_some() { 96.0 } else { 0.0 }
+                                + if self.selected_image == Some(i) && shown_width.is_some() {
+                                    82.0
+                                } else {
+                                    0.0
+                                }
+                                + if crop.is_some() { 100.0 } else { 0.0 };
+                            let room =
+                                (ui.available_width() - icons_w - extras_w - 10.0).max(60.0);
+                            ui.scope(|ui| {
+                            ui.set_max_width(room);
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(caption)
+                                        .family(theme::fam(theme::F_MONO))
+                                        .size(10.5)
+                                        .color(t.faint),
+                                )
+                                .truncate(),
                             );
+                            });
                             // the file's own pixels, which is what the picture is, not what it is drawn
                             if let Some(d) = dims {
                                 ui.add_space(2.0);
@@ -5171,6 +5936,10 @@ impl NoteCraft {
                     ui.scroll_to_rect(ui.min_rect(), Some(egui::Align::Center));
                     self.scroll_to_block = None;
                 }
+                // The picture's own row, for the drop target. Only text blocks used to be recorded, so
+                // a pointer over a picture was read against the nearest paragraph instead — and a gap
+                // beside a picture had no boundary to draw the caret on at all.
+                block_rects.push((i, block_row(ui, line_top)));
                 continue;
             }
             // ---------------- a rule
@@ -5192,9 +5961,128 @@ impl NoteCraft {
                     ui.scroll_to_rect(ui.min_rect(), Some(egui::Align::Center));
                     self.scroll_to_block = None;
                 }
+                block_rects.push((i, block_row(ui, line_top)));
                 continue;
             }
 
+            // ---------------- a table
+            if kind == doc::Kind::Table {
+                let mut grid = self.doc.blocks[i]
+                    .table
+                    .clone()
+                    .unwrap_or_else(|| doc::Table::new(doc::Table::DEFAULT_COLS));
+                let cols = grid.cols().max(1);
+                let size = block_size(doc::Kind::Para) * self.note_text.scale() * 0.95;
+                let mut edited = false;
+                ui.horizontal_top(|ui| {
+                    ui.add_space(GUTTER - 10.0);
+                    let cw = (ui.available_width() - 4.0).max(120.0) / cols as f32;
+                    // one TextEdit per cell, so the caret, the selection and typing are the same
+                    // machinery as the rest of the note; the grid is painted around them
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing = Vec2::ZERO;
+                        for rn in 0..grid.rows.len() {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing = Vec2::ZERO;
+                                for cn in 0..cols {
+                                    let head = rn == 0;
+                                    let mut cell = grid.rows[rn].get(cn).cloned().unwrap_or_default();
+                                    let out = egui::TextEdit::singleline(&mut cell)
+                                        .id(egui::Id::new(("cell", i, rn, cn)))
+                                        .frame(false)
+                                        .margin(Margin::symmetric(6, 4))
+                                        .desired_width(cw)
+                                        .font(egui::FontId::new(
+                                            size,
+                                            theme::note_fam(if head {
+                                                theme::F_SEMI
+                                            } else {
+                                                theme::F_REG
+                                            }),
+                                        ))
+                                        .text_color(if head { t.heading } else { t.text })
+                                        .show(ui);
+                                    if out.response.changed() {
+                                        if let Some(c) = grid.rows[rn].get_mut(cn) {
+                                            *c = cell;
+                                        }
+                                        edited = true;
+                                    }
+                                    let r = out.response.rect;
+                                    let stroke = Stroke::new(1.0_f32, t.border);
+                                    if cn + 1 < cols {
+                                        ui.painter().vline(r.right(), r.y_range(), stroke);
+                                    }
+                                    ui.painter().hline(r.x_range(), r.bottom(), stroke);
+                                    // the row and the column are the cell's own: the menu says which
+                                    // one it is acting on, and every command names it
+                                    out.response.context_menu(|ui| {
+                                        ui.set_width(214.0);
+                                        ui.label(
+                                            RichText::new(format!("table · row {} · column {}", rn + 1, cn + 1))
+                                                .family(theme::fam(theme::F_MONO))
+                                                .size(11.0)
+                                                .color(t.faint),
+                                        );
+                                        ui.separator();
+                                        if menu_action(ui, "Insert row above", "", &t) {
+                                            table_op = Some((i, TableOp::AddRowAbove(rn)));
+                                            ui.close();
+                                        }
+                                        if menu_action(ui, "Insert row below", "", &t) {
+                                            table_op = Some((i, TableOp::AddRowBelow(rn)));
+                                            ui.close();
+                                        }
+                                        // the header is not a row that can be deleted, and the last
+                                        // body row stays: the menu offers only what would work
+                                        if rn > 0 && grid.rows.len() > 2 && menu_action(ui, "Delete row", "", &t) {
+                                            table_op = Some((i, TableOp::DelRow(rn)));
+                                            ui.close();
+                                        }
+                                        if rn == 0 {
+                                            ui.label(
+                                                RichText::new("the header row stays")
+                                                    .family(theme::fam(theme::F_MONO))
+                                                    .size(10.5)
+                                                    .color(t.faint),
+                                            );
+                                        }
+                                        ui.separator();
+                                        if menu_action(ui, "Insert column left", "", &t) {
+                                            table_op = Some((i, TableOp::AddColLeft(cn)));
+                                            ui.close();
+                                        }
+                                        if menu_action(ui, "Insert column right", "", &t) {
+                                            table_op = Some((i, TableOp::AddColRight(cn)));
+                                            ui.close();
+                                        }
+                                        if cols > 1 && menu_action(ui, "Delete column", "", &t) {
+                                            table_op = Some((i, TableOp::DelCol(cn)));
+                                            ui.close();
+                                        }
+                                        ui.separator();
+                                        if menu_action(ui, "Delete table", "", &t) {
+                                            table_op = Some((i, TableOp::Unmake));
+                                            ui.close();
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    });
+                });
+                if edited {
+                    self.doc.blocks[i].table = Some(grid);
+                    changed = true;
+                }
+                ui.add_space(space_after(kind));
+                if self.scroll_to_block == Some(i) {
+                    ui.scroll_to_rect(ui.min_rect(), Some(egui::Align::Center));
+                    self.scroll_to_block = None;
+                }
+                block_rects.push((i, block_row(ui, line_top)));
+                continue;
+            }
             // ---------------- a text block
             let size = block_size(kind) * self.note_text.scale();
             let runs = self.doc.blocks[i].runs.clone();
@@ -5258,6 +6146,123 @@ impl NoteCraft {
                         join_block = Some(i);
                     }
                 }
+                // Delete at the very end of a block is the same act the other way round: this block
+                // takes the one below into itself and the caret stays at the join point. It used to
+                // do nothing at all there — egui has nothing after the caret to remove, and a block
+                // holds no line break for the key to eat, so the line below stayed out of reach.
+                // Only words join: a picture, a rule and a table are blocks of their own, and fusing
+                // a line onto one of those would delete it rather than merge two lines.
+                if i + 1 < n
+                    && joins_words(kind)
+                    && joins_words(self.doc.blocks[i + 1].kind)
+                    && ui.memory(|m| m.has_focus(block_id))
+                {
+                    let end = doc::run_len(&runs);
+                    let at_end = egui::text_edit::TextEditState::load(ui.ctx(), block_id)
+                        .and_then(|st| st.cursor.char_range())
+                        .map(|r| r.primary.index == end && r.secondary.index == end)
+                        .unwrap_or(false);
+                    if at_end && ui.input(|inp| inp.key_pressed(egui::Key::Delete)) {
+                        join_next = Some(i);
+                    }
+                }
+                // A line is its own TextEdit, so egui's arrows stop dead at the edge of it: Down on the
+                // last row, Up on the first, Right past the last character, Left before the first. In
+                // a note those four keys are the document's own navigation, and they worked inside a
+                // line and then did nothing at its edge — which reads as "the arrows are unreliable".
+                // Carried across the block edge here, where the caret's own state is known and the
+                // keys can still be taken before the editor reads them. A modified Shift/Alt/Ctrl
+                // form is a selection, a word jump or a shortcut, never a line move, and a caret with
+                // words marked collapses that marking before it walks.
+                if ui.memory(|m| m.has_focus(block_id)) {
+                    if let Some(range) = egui::text_edit::TextEditState::load(ui.ctx(), block_id)
+                        .and_then(|st| st.cursor.char_range())
+                    {
+                        let range = range.as_sorted_char_range();
+                        let (a, b) = (range.start, range.end);
+                        let here = doc::run_len(&runs);
+                        // where the caret is in the line *as drawn* (last frame): a wrapped
+                        // paragraph has rows of its own, and Up/Down belong to those first
+                        let (first_row, last_row, caret_x) = match
+                            self.line_hits.iter().find(|l| l.block == i)
+                        {
+                            Some(hit) => caret_row(&hit.galley, b),
+                            None => (true, true, 0.0),
+                        };
+                        let want = ui.input_mut(|inp| {
+                            if inp.modifiers.alt
+                                || inp.modifiers.shift
+                                || inp.modifiers.command
+                                || inp.modifiers.ctrl
+                            {
+                                return None;
+                            }
+                            // Left/Right only leave the line with nothing marked
+                            if a == b && a == 0 && inp.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft) {
+                                return Some(CaretStep::Left);
+                            }
+                            if a == b
+                                && a == here
+                                && inp.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+                            {
+                                return Some(CaretStep::Right);
+                            }
+                            if first_row && inp.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
+                                return Some(CaretStep::Up);
+                            }
+                            if last_row && inp.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
+                                return Some(CaretStep::Down);
+                            }
+                            None
+                        });
+                        if let Some(step) = want {
+                            // the nearest block that can hold a caret: a picture, a rule and a table
+                            // have none, and an arrow should not get stuck on one of them
+                            let near = match step {
+                                CaretStep::Left | CaretStep::Up => {
+                                    (0..i).rev().find(|k| joins_words(self.doc.blocks[*k].kind))
+                                }
+                                CaretStep::Right | CaretStep::Down => {
+                                    ((i + 1)..n).find(|k| joins_words(self.doc.blocks[*k].kind))
+                                }
+                            };
+                            if let Some(k) = near {
+                                let len = doc::run_len(&self.doc.blocks[k].runs);
+                                let to = match step {
+                                    // Left comes in at the end of the line above, Right at the start
+                                    // of the one below — where a caret would naturally be
+                                    CaretStep::Left => len,
+                                    CaretStep::Right => 0,
+                                    // Up and Down keep the column, so the caret lands on the row the
+                                    // same word was on in the line it came from
+                                    CaretStep::Up | CaretStep::Down => {
+                                        match self.line_hits.iter().find(|l| l.block == k) {
+                                            Some(hit) => caret_at_column(
+                                                &hit.galley,
+                                                caret_x,
+                                                step == CaretStep::Up,
+                                            )
+                                            .min(len),
+                                            None => 0,
+                                        }
+                                    }
+                                };
+                                caret_to = Some((k, to));
+                                // a caret that walks off the visible slice has to take the view with
+                                // it, or the next keystroke lands in a line nobody can see
+                                let seen = self
+                                    .block_rects
+                                    .iter()
+                                    .find(|(b, _)| *b == k)
+                                    .map(|(_, r)| ui.clip_rect().contains_rect(*r))
+                                    .unwrap_or(false);
+                                if !seen {
+                                    self.caret_show = Some(k);
+                                }
+                            }
+                        }
+                    }
+                }
                 // A task with no due date carries the same "+ due" chip the tasks view shows, at the
                 // end of the line where its date would appear. The text edit gives up that width so
                 // the chip cannot sit on top of the words.
@@ -5312,6 +6317,20 @@ impl NoteCraft {
                     .desired_rows(1)
                     .layouter(&mut layouter)
                     .show(ui);
+                // Colour emoji sit on top of their own monochrome glyph, which is what reserved the
+                // cell: drawn after the text edit, clipped to the block so nothing bleeds into the
+                // line below.
+                {
+                    let clip = ui.clip_rect().intersect(out.response.rect.expand(2.0));
+                    emoji::paint(
+                        &ui.painter().with_clip_rect(clip),
+                        &buf,
+                        &out.galley,
+                        out.galley_pos,
+                        ui.ctx(),
+                        t.bg,
+                    );
+                }
                 // Spelling: a red squiggle under every word this dictionary does not know. Painted
                 // after the edit (the text is already drawn) but under the baseline, so it reads as an
                 // annotation rather than as part of the glyph, and clipped to the block so a squiggle
@@ -5350,18 +6369,13 @@ impl NoteCraft {
                     }
                     chip.on_hover_text("set this task's due date");
                 }
-                // the lines this menu will act on: the marked range when it covers this block,
-                // otherwise this block alone
-                let menu_idx: Vec<usize> = match self.block_sel {
-                    Some((a, b)) if b > a && a <= i && i <= b => (a..=b).collect(),
-                    _ => vec![i],
+                // the lines this menu will act on: the marking when it covers this block, otherwise
+                // this block alone — and, for each of them, the exact words it covers
+                let menu_targets: Vec<(usize, Option<(usize, usize)>)> = match self.mark {
+                    Some(m) if i >= m.a.0 && i <= m.b.0 => doc::mark_ranges(&self.doc, &m),
+                    _ => vec![(i, self.block_selection)],
                 };
-                let menu_range = if menu_idx.len() > 1 {
-                    None
-                } else {
-                    self.block_selection
-                };
-                let ms = menu_state(&self.doc, &menu_idx, menu_range);
+                let ms = menu_state(&self.doc, &menu_targets);
                 // The word the right-click landed on, if it is one this dictionary flags: the menu
                 // offers to ignore it, the way it offers to make the line bold. Captured as the menu
                 // opens — by the next frame the pointer is over the menu itself.
@@ -5472,6 +6486,11 @@ impl NoteCraft {
                         cmd = Some(Edit::Kind(doc::Kind::Para));
                         ui.close();
                     }
+                    // a table is a line of its own, not a property of words marked inside one
+                    if menu_action(ui, "Table", "", &t) {
+                        cmd = Some(Edit::Table);
+                        ui.close();
+                    }
                     ui.separator();
                     for (label, which, on) in [
                         ("Bold", 0, ms.bold),
@@ -5515,15 +6534,15 @@ impl NoteCraft {
                     ui.separator();
                     // A due date belongs to a task, so the row only exists when every line the menu
                     // will act on is a todo; on a paragraph there is nothing a date could mean.
-                    let all_todos = !menu_idx.is_empty()
-                        && menu_idx.iter().all(|i| {
+                    let all_todos = !menu_targets.is_empty()
+                        && menu_targets.iter().all(|(i, _)| {
                             self.doc
                                 .blocks
                                 .get(*i)
                                 .map(|b| b.kind == doc::Kind::Todo)
                                 .unwrap_or(false)
                         });
-                    let current_due = menu_idx.iter().find_map(|i| {
+                    let current_due = menu_targets.iter().find_map(|(i, _)| {
                         self.doc
                             .blocks
                             .get(*i)
@@ -5545,7 +6564,7 @@ impl NoteCraft {
                             // the first click inside it, so it could not be paged
                             if menu_action(ui, "Pick a date…", "", &t) {
                                 pick_due = Some(current_due);
-                                pick_blocks = Some(menu_idx.clone());
+                                pick_blocks = Some(menu_targets.iter().map(|(i, _)| *i).collect());
                                 ui.close();
                             }
                             if current_due.is_some() && menu_action(ui, "Clear due date", "", &t) {
@@ -5580,26 +6599,66 @@ impl NoteCraft {
                             ui.close();
                         }
                     });
+                    // The marks a note is written with, one click away; the rest are in the picker,
+                    // which the submenu's last row opens (it stays open for the next one).
+                    ui.menu_button("Insert", |ui| {
+                        ui.set_width(196.0);
+                        for ch in glyphs::QUICK {
+                            let label = match glyphs::by_char(ch) {
+                                Some(g) => format!("{ch}   {}", g.name),
+                                None => ch.to_string(),
+                            };
+                            if menu_action(ui, &label, "", &t) {
+                                glyph_insert = Some(ch);
+                                ui.close();
+                            }
+                        }
+                        ui.separator();
+                        if menu_action(ui, "More symbols…", "", &t) {
+                            glyph_open = true;
+                            ui.close();
+                        }
+                    });
                 });
                 if self.scroll_to_block == Some(i) {
                     ui.scroll_to_rect(out.response.rect, Some(egui::Align::Center));
                     self.scroll_to_block = None;
                 }
+                // An arrow that walked the caret into a line the note was not showing: bring that
+                // line in by the smallest scroll that shows it. `None` for the align is what keeps a
+                // one-line step to a one-line scroll — centring would jump the whole note.
+                if self.caret_show == Some(i) {
+                    ui.scroll_to_rect(out.response.rect, None);
+                    self.caret_show = None;
+                }
                 block_rects.push((i, out.response.rect));
-                if out.response.dragged() {
-                    dragged_block = Some(i);
-                }
-                if out.response.clicked() {
-                    // a plain click starts a new marking; a drag builds its own range
-                    self.block_sel = None;
-                    self.selected_block = Some(i);
-                }
-                let live: Option<(usize, usize)> = egui::text_edit::TextEditState::load(ui.ctx(), block_id)
+                let state = egui::text_edit::TextEditState::load(ui.ctx(), block_id);
+                let live: Option<(usize, usize)> = state
+                    .as_ref()
                     .and_then(|st| st.cursor.char_range())
                     .map(|r| r.as_sorted_char_range())
                     .map(|r| (r.start, r.end));
+                line_hits.push(LineHit {
+                    block: i,
+                    rect: out.response.rect,
+                    galley: out.galley.clone(),
+                    pos: out.galley_pos,
+                    live,
+                    focused: out.response.has_focus(),
+                });
+                if out.response.clicked() {
+                    // a plain click starts a new marking; a drag builds its own range
+                    self.mark = None;
+                    self.selected_block = Some(i);
+                }
                 if out.response.has_focus() {
                     self.selected_block = Some(i);
+                    let at = state
+                        .as_ref()
+                        .and_then(|st| st.cursor.char_range())
+                        .map(|r| r.primary.index)
+                        .unwrap_or(0);
+                    self.caret = Some((i, at));
                     self.block_selection = live.filter(|(s, e)| e > s);
                     if let Some((s, e)) = self.block_selection {
                         self.last_sel.insert(i, (s, e));
@@ -5611,12 +6670,12 @@ impl NoteCraft {
                 // menu.
                 if out.response.secondary_clicked() {
                     // The menu's own list above falls back to this block when the click is outside
-                    // the marked range, but every command it sets is applied to `self.block_sel`.
-                    // Left set, right-clicking line 7 while lines 2-4 were marked made the menu
-                    // *show* line 7's state and *edit* lines 2-4.
-                    if let Some((a, b)) = self.block_sel {
-                        if i < a || i > b {
-                            self.block_sel = None;
+                    // the marking, but every command it sets is applied to the marking. Left set,
+                    // right-clicking line 7 while lines 2-4 were marked made the menu *show* line
+                    // 7's state and *edit* lines 2-4.
+                    if let Some(m) = self.mark {
+                        if i < m.a.0 || i > m.b.0 {
+                            self.mark = None;
                         }
                     }
                     let remembered = self.last_sel.get(&i).copied();
@@ -5655,28 +6714,175 @@ impl NoteCraft {
             ui.add_space(space_after(kind));
         }
 
-        // ---------------- a marking that left its block
-        if let Some(d) = dragged_block {
-            if let Some(py) = ui.input(|i| i.pointer.interact_pos()).map(|p| p.y) {
-                let own = block_rects.iter().find(|(i, _)| *i == d).map(|(_, r)| *r);
-                if let Some(own) = own {
-                    if py < own.top() - 2.0 || py > own.bottom() + 2.0 {
-                        // the block under the pointer; whole blocks are marked, which is what a
-                        // drag across lines means here
-                        let target = block_rects
-                            .iter()
-                            .filter(|(i, _)| *i != d)
-                            .min_by(|a, b| {
-                                let da = (a.1.center().y - py).abs();
-                                let db = (b.1.center().y - py).abs();
-                                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-                            })
-                            .map(|(i, _)| *i);
-                        if let Some(t) = target {
-                            self.block_sel = Some((d.min(t), d.max(t)));
+        // ---------------- starting and growing a marking
+        // Followed here rather than inside the TextEdit: a line is one widget, egui can only mark
+        // inside one of them, and a press in the left margin (not a widget at all) used to start
+        // nothing. A press anywhere on a line starts a marking at the character under the pointer;
+        // once it reaches a second line the two ends are what the marking is.
+        {
+            let (pressed, released, down, pos, origin) =
+                ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.primary_down(), i.pointer.interact_pos(), i.pointer.press_origin()));
+            // A press that lands on a floating layer — the right-click menu, a window — is not a press
+            // on the note. It arrives while the menu row's own action is being collected in this same
+            // frame, and treating it as a note press cleared the marking first, so *Copy* in the
+            // right-click menu took the one line under the menu instead of the marked lines. The
+            // central panel is the background layer, so anything above it is a popup.
+            let on_popup = origin
+                .or(pos)
+                .and_then(|p| ui.ctx().layer_id_at(p))
+                .map(|l| l.order != egui::Order::Background)
+                .unwrap_or(false);
+            // The note's own viewport: the visible slice of the scroll area. The lines above and below
+            // it are still laid out and still have rects in window coordinates, only their pixels are
+            // clipped — so a press on the ribbon could land inside the rect of a line that was
+            // scrolled out of sight and start a marking there. That is exactly what happened: scroll
+            // down, mark a word, press a highlighter swatch, and the marker went on the two or three
+            // invisible lines that happen to sit under the bar row (and, because the press also armed
+            // the edge auto-scroll below, the note then scrolled by itself while the pointer sat
+            // still). A press only starts a marking inside this rect. A drag may leave it: dragging
+            // past an edge is what scrolls the note and walks the marking down the page.
+            let view = ui.clip_rect();
+            let in_view = |p: egui::Pos2| view.contains(p);
+            // and only the lines actually on screen are hit-testable, so "past the top of the note"
+            // means past the first line the user can see, not past a clipped one
+            line_hits.retain(|l| l.rect.intersects(view));
+            // the release is never gated: a drag that ends over a menu still has to end
+            let press = pressed && !on_popup && origin.or(pos).is_some_and(in_view);
+            let down = down && !on_popup;
+            // the character a screen position sits on: the line under it, and the galley's own
+            // mapping of x to a character index (a press left of the words is character 0)
+            let at = |p: egui::Pos2| -> Option<(usize, usize)> {
+                line_hits
+                    .iter()
+                    .filter(|l| {
+                        p.x >= l.rect.left() - GUTTER && p.x <= l.rect.right()
+                            && p.y >= l.rect.top() - 3.0
+                            && p.y <= l.rect.bottom() + 3.0
+                    })
+                    .min_by(|a, b| {
+                        (a.rect.center().y - p.y)
+                            .abs()
+                            .partial_cmp(&(b.rect.center().y - p.y).abs())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|l| {
+                        let x = p.x.max(l.rect.left());
+                        (l.block, l.galley.cursor_from_pos(egui::vec2(x - l.pos.x, p.y - l.pos.y)).index)
+                    })
+            };
+            // Whether a press at `p` landed on a line's own `TextEdit` (its widget, not just the
+            // line the gutter tolerance below reaches into). egui takes the press and paints a
+            // selection inside that line only when it did; a press in the gutter beside the words
+            // is on the canvas, so a drag that stays in one line there marks nothing at all — and
+            // the button then fell back to "the whole line". That is what made Code and Strike look
+            // unreliable: the same gesture selected nothing or everything depending on which side of
+            // a 26 pt strip the press landed.
+            let on_widget = |p: egui::Pos2| line_hits.iter().any(|l| l.rect.contains(p));
+            // Past the lines that were drawn there is nothing to hit-test, which is why a marking used
+            // to stop dead at the bottom of the view. Past the bottom it now takes the end of the last
+            // visible line and past the top the start of the first — and the auto-scroll below keeps
+            // bringing new lines into reach, so holding the pointer at the edge walks to the end of the
+            // document the way it does in every other editor. Only inside the note's own column: a
+            // release over the rail, a bar or the empty canvas beside the page is not a place in the
+            // note, and reading it as "past the end" stretched the marking to the document's end.
+            let last_len = line_hits
+                .last()
+                .and_then(|l| self.doc.blocks.get(l.block))
+                .map(|b| b.text().chars().count())
+                .unwrap_or(0);
+            let at_or_edge = |p: egui::Pos2| -> Option<(usize, usize)> {
+                if let Some(v) = at(p) {
+                    return Some(v);
+                }
+                let first = line_hits.first()?;
+                let last = line_hits.last()?;
+                let in_column = p.x >= first.rect.left() - GUTTER && p.x <= first.rect.right();
+                if in_column && p.y < first.rect.top() {
+                    Some((first.block, 0))
+                } else if in_column && p.y > last.rect.bottom() {
+                    Some((last.block, last_len))
+                } else {
+                    None
+                }
+            };
+            if press {
+                if let Some(anchor) = origin.or(pos).and_then(at) {
+                    // a new press is a new marking: whatever was marked before is not the selection
+                    self.mark = None;
+                    self.block_selection = None;
+                    let took = origin.or(pos).map(on_widget).unwrap_or(false);
+                    self.drag_from = Some((anchor.0, anchor.1, anchor.0, took));
+                    self.selected_block = Some(anchor.0);
+                    // a press left of the words belongs to no widget: put the caret at the start of
+                    // that line, so typing goes where the click landed
+                    let in_margin = line_hits
+                        .iter()
+                        .find(|l| l.block == anchor.0)
+                        .zip(origin)
+                        .map(|(l, p)| p.x < l.rect.left())
+                        .unwrap_or(false);
+                    if in_margin {
+                        caret_to = Some((anchor.0, 0));
+                    }
+                } else if origin.or(pos).is_some_and(|p| ui.clip_rect().contains(p)) {
+                    // Inside the note's own area but on no line — the canvas beside the column, a
+                    // gutter past its reach: not a new marking, but it must not leave the old one
+                    // armed either, or the next button press would edit words the user had already
+                    // moved away from. Gated to the note's area because the bars above it are
+                    // presses too, and one of those is the Code or Strike button itself.
+                    self.mark = None;
+                    self.block_selection = None;
+                }
+            }
+            // The release counts too: a fast drag ends on a position no earlier frame saw, and the
+            // line the marking was drawn against last frame is a frame behind the pointer. Reading
+            // the release position is what keeps the marked words and the words a command edits the
+            // same set.
+            if (down && !press) || released {
+                if let Some((bi, bc, from, took)) = self.drag_from {
+                    if let Some(here) = pos.and_then(at_or_edge) {
+                        if here == (bi, bc) {
+                            // the two ends met: nothing is marked
+                            self.mark = None;
+                        } else if here.0 == bi && took {
+                            // inside one line, on the line's own widget: egui marks it itself
+                            self.mark = None;
+                        } else {
+                            self.mark = Some(doc::Mark::new(from, (bi, bc), here));
                         }
                     }
                 }
+            }
+            // Holding the pointer against the top or bottom of the note scrolls it. The speed rises
+            // with how far into the margin it is pushed, and the frame keeps repainting so a still
+            // pointer still scrolls — the marking follows because the lines it is read against are
+            // redrawn at their new places every frame.
+            if down && self.drag_from.is_some() {
+                if let Some(p) = pos {
+                    let step = edge_scroll_step(ui.clip_rect(), p);
+                    if step != 0.0 {
+                        // egui scrolls content up for a negative delta: below the view means more
+                        // negative y, above it the other way
+                        ui.scroll_with_delta(egui::vec2(0.0, -step));
+                        ui.ctx().request_repaint();
+                    }
+                }
+            }
+            // The same rule for a file held over the note: held against the bottom or the top the note
+            // scrolls under it, so the file can be dropped anywhere in the note and not only on what
+            // happened to be on screen when the drag began. The position is the drag's own — it keeps
+            // arriving while the note scrolls, so the rule stays at the pointer.
+            if self.drop_hover || self.img_move.is_some() {
+                if let Some(p) = self.drop_at {
+                    let step = edge_scroll_step(ui.clip_rect(), p);
+                    if step != 0.0 {
+                        ui.scroll_with_delta(egui::vec2(0.0, -step));
+                        ui.ctx().request_repaint();
+                    }
+                }
+            }
+            if released {
+                self.drag_from = None;
             }
         }
         // A resize whose button came up without the grip reporting it (a grab lost to another
@@ -5709,16 +6915,29 @@ impl NoteCraft {
         self.heading_tops = heads;
         self.caption_rows = rows;
 
-        if let Some((a, b)) = self.block_sel {
-            if b > a {
-                for (i, r) in &block_rects {
-                    if *i >= a && *i <= b {
-                        ui.painter().rect_filled(
-                            r.expand2(Vec2::new(4.0, 2.0)),
-                            CornerRadius::same(4),
-                            t.accent.gamma_multiply(0.13),
-                        );
-                    }
+        // The marking, painted over the words it covers — the first and last lines only as far as
+        // the drag reached. A line that already shows exactly that range as its own egui selection
+        // (the one the drag started in) is left alone, or it would be painted twice.
+        if let Some(m) = self.mark {
+            let fill = ui.visuals().selection.bg_fill;
+            for l in &line_hits {
+                if l.block < m.a.0 || l.block > m.b.0 {
+                    continue;
+                }
+                let len = self
+                    .doc
+                    .blocks
+                    .get(l.block)
+                    .map(|b| doc::run_len(&b.runs))
+                    .unwrap_or(0);
+                let Some(range) = m.range_in(l.block, len) else {
+                    continue;
+                };
+                if l.focused && l.live == Some(range) {
+                    continue;
+                }
+                for rect in sel_rects(&l.galley, l.pos, range) {
+                    ui.painter().rect_filled(rect, CornerRadius::same(2), fill);
                 }
             }
         }
@@ -5751,14 +6970,27 @@ impl NoteCraft {
             || toggle_todo.is_some()
             || drop_block.is_some()
             || move_block.is_some()
-            || drop_blocks.is_some()
+            || delete_marked
             || typed_over.is_some()
             || split_block.is_some()
             || join_block.is_some()
+            || join_next.is_some()
             || resize_commit.is_some()
             || matches!(clip, Some(ClipAction::Cut));
         if structural {
             self.snapshot();
+        }
+        if glyph_open {
+            self.glyph_pick = Some(GlyphPick {
+                query: String::new(),
+                group: None,
+                focus: true,
+            });
+        }
+        // after the snapshot, so the undo step is the document as it was before the mark landed
+        if let Some(ch) = glyph_insert {
+            self.insert_glyph(ch);
+            changed = true;
         }
         if let (Some(current), Some(blocks)) = (pick_due, pick_blocks) {
             let at = pick_at
@@ -5772,14 +7004,11 @@ impl NoteCraft {
                 fresh: true,
             });
         }
-        let targets: Vec<usize> = match self.block_sel {
-            Some((a, b)) if b > a => (a..=b).filter(|i| *i < self.doc.blocks.len()).collect(),
-            _ => self.selected_block.into_iter().collect(),
-        };
+        let targets = self.targets();
         if let Some(edit) = cmd {
             match edit {
                 Edit::Kind(k) => {
-                    for i in &targets {
+                    for (i, _) in &targets {
                         if let Some(b) = self.doc.blocks.get_mut(*i) {
                             // picking what a line already is turns it back into plain text
                             b.kind = if b.kind == k && k != doc::Kind::Para {
@@ -5791,19 +7020,27 @@ impl NoteCraft {
                         }
                     }
                 }
+                Edit::Table => {
+                    // one table where the line is; a line that already is one is left as it is
+                    for (i, _) in &targets {
+                        if let Some(b) = self.doc.blocks.get_mut(*i) {
+                            if b.table.is_none() {
+                                b.kind = doc::Kind::Table;
+                                b.table = Some(doc::Table::new(doc::Table::DEFAULT_COLS));
+                                b.runs.clear();
+                                changed = true;
+                            }
+                        }
+                    }
+                }
                 Edit::Attr(which) => {
-                    // inside one block the menu honours the marked words; across blocks it applies
-                    // to every block in the range (a marking of whole lines has no single char range)
-                    let range = if targets.len() > 1 {
-                        None
-                    } else {
-                        self.block_selection
-                    };
-                    let on = targets.iter().all(|i| {
+                    // every line keeps its own words: the menu acts on exactly what is marked, on the
+                    // first and last lines alike, and on the whole line only when nothing is marked
+                    let on = targets.iter().all(|(i, r)| {
                         self.doc
                             .blocks
                             .get(*i)
-                            .map(|b| doc::attr_all(&b.runs, range, |a| match which {
+                            .map(|b| doc::attr_all(&b.runs, *r, |a| match which {
                                 0 => a.bold,
                                 1 => a.italic,
                                 2 => a.code,
@@ -5811,9 +7048,9 @@ impl NoteCraft {
                             }))
                             .unwrap_or(false)
                     });
-                    for i in &targets {
+                    for (i, r) in &targets {
                         if let Some(b) = self.doc.blocks.get_mut(*i) {
-                            doc::set_attr(&mut b.runs, range, |a| {
+                            doc::set_attr(&mut b.runs, *r, |a| {
                                 let v = !on;
                                 match which {
                                     0 => a.bold = v,
@@ -5827,14 +7064,10 @@ impl NoteCraft {
                     }
                 }
                 Edit::Mark(v) => {
-                    let range = if targets.len() > 1 {
-                        None
-                    } else {
-                        self.block_selection
-                    };
-                    for i in &targets {
+                    // the highlighter paints exactly the marked words, on every line it covers
+                    for (i, r) in &targets {
                         if let Some(b) = self.doc.blocks.get_mut(*i) {
-                            doc::set_attr(&mut b.runs, range, |a| a.mark = v);
+                            doc::set_attr(&mut b.runs, *r, |a| a.mark = v);
                             changed = true;
                         }
                     }
@@ -5842,7 +7075,7 @@ impl NoteCraft {
                 Edit::Due(d) => {
                     // the editor sets a date on a task line exactly as the tasks view does; it never
                     // takes one off (only "Clear due date" does, so a stray press cannot delete)
-                    for i in &targets {
+                    for (i, _) in &targets {
                         if let Some(b) = self.doc.blocks.get_mut(*i) {
                             doc::set_due(&mut b.runs, d);
                             changed = true;
@@ -5850,7 +7083,7 @@ impl NoteCraft {
                     }
                 }
                 Edit::DueClear => {
-                    for i in &targets {
+                    for (i, _) in &targets {
                         if let Some(b) = self.doc.blocks.get_mut(*i) {
                             doc::clear_due(&mut b.runs);
                             changed = true;
@@ -5858,30 +7091,25 @@ impl NoteCraft {
                     }
                 }
                 Edit::Size(step) => {
-                    let range = if targets.len() > 1 {
-                        None
-                    } else {
-                        self.block_selection
-                    };
                     // the step is a toggle like the rest: pressing the size the text already has
                     // returns it to the block's own size
-                    let on = targets.iter().all(|i| {
+                    let on = targets.iter().all(|(i, r)| {
                         self.doc
                             .blocks
                             .get(*i)
-                            .map(|b| doc::attr_all(&b.runs, range, |a| a.size == step))
+                            .map(|b| doc::attr_all(&b.runs, *r, |a| a.size == step))
                             .unwrap_or(false)
                     });
                     let v = if on && step != 0 { 0 } else { step };
-                    for i in &targets {
+                    for (i, r) in &targets {
                         if let Some(b) = self.doc.blocks.get_mut(*i) {
-                            doc::set_attr(&mut b.runs, range, |a| a.size = v);
+                            doc::set_attr(&mut b.runs, *r, |a| a.size = v);
                             changed = true;
                         }
                     }
                 }
                 Edit::Tag(tag) => {
-                    for i in &targets {
+                    for (i, _) in &targets {
                         if let Some(b) = self.doc.blocks.get_mut(*i) {
                             let has = b
                                 .runs
@@ -5906,6 +7134,38 @@ impl NoteCraft {
                 }
             }
         }
+        // The marking's copy, written *again* now that every `TextEdit` has been drawn: the focused
+        // one answers `Event::Copy` with its own single-line selection, and the last writer wins.
+        if let Some(text) = self.clip_after.take() {
+            if !text.is_empty() {
+                ui.ctx().copy_text(text);
+            }
+        }
+        // What a drop is read against, kept for the next frame: the blocks as they were just drawn,
+        // their galleys and the column. Then the target itself, drawn on top of them.
+        self.block_rects = block_rects;
+        self.line_hits = line_hits;
+        if let Some((i, op)) = table_op {
+            self.snapshot();
+            if let Some(b) = self.doc.blocks.get_mut(i) {
+                if op == TableOp::Unmake {
+                    b.kind = doc::Kind::Para;
+                    b.table = None;
+                    changed = true;
+                } else if let Some(tb) = b.table.as_mut() {
+                    match op {
+                        TableOp::AddRowAbove(r) => tb.add_row(r.saturating_sub(1)),
+                        TableOp::AddRowBelow(r) => tb.add_row(r + 1),
+                        TableOp::DelRow(r) => tb.remove_row(r),
+                        TableOp::AddColLeft(c) => tb.add_col(c),
+                        TableOp::AddColRight(c) => tb.add_col(c + 1),
+                        TableOp::DelCol(c) => tb.remove_col(c),
+                        TableOp::Unmake => {}
+                    }
+                    changed = true;
+                }
+            }
+        }
         if let Some(i) = toggle_todo {
             if let Some(b) = self.doc.blocks.get_mut(i) {
                 b.done = !b.done;
@@ -5916,6 +7176,54 @@ impl NoteCraft {
             self.doc.blocks.remove(i);
             self.selected_image = None;
             changed = true;
+        }
+        // A carried picture, let go.
+        //
+        // Two ways a release arrives: the picture's own `drag_stopped`, or — the button came up with
+        // the pointer outside the window, or egui restarted the widget — nothing at all. The second
+        // used to be cancelled outright, and the drop was also refused the moment the pointer left the
+        // note's centred column, so a hand that drifted into the margin beside the text dropped the
+        // picture nowhere with no sign of why. The *y* is what decides the place, so a release over the
+        // page's own height counts, column or margin.
+        let released = if let Some(from) = img_move_stop {
+            Some((from, true))
+        } else if self.img_move.is_some() && !ui.input(|i| i.pointer.any_down()) {
+            // This has to be here and not before the loop: the release and the drop arrive in the same
+            // frame, and a check that ran first would cancel every real drop.
+            self.img_move.map(|from| (from, false))
+        } else {
+            None
+        };
+        if let Some((from, saw_drag_stop)) = released {
+            // The target is the guard: `drop_place` only answers while the pointer is over one of the
+            // note's blocks, so a release over the rail or the sidebar lands nowhere and the picture
+            // goes back. This used to be a test against `note_col`, the column's rect — which does not
+            // cover the page's blocks (the log showed every release as `over_page: false` while the
+            // target under the same pointer was a perfectly good block), so *no* reposition ever
+            // landed. Kept honest for a release off the window: the pointer has to still be on it.
+            let place = self.drop_place();
+            let on_screen = self
+                .drop_at
+                .is_some_and(|p| ui.ctx().content_rect().contains(p));
+            let mut moved = None;
+            if let Some(place) = place.filter(|_| on_screen) {
+                moved = doc::move_block(&mut self.doc.blocks, from, place.after, place.split);
+                if let Some(at) = moved {
+                    self.selected_image = Some(at);
+                    self.flash("picture moved");
+                    changed = true;
+                }
+            }
+            // every release is written down: an unreliable gesture and a gesture that never arrived
+            // look identical from the outside, and this is the only place that tells them apart
+            dnd_log(&format!(
+                "img move: from={from} at={:?} on_screen={on_screen} col={:?} place={:?} moved={moved:?} stopped={saw_drag_stop}",
+                self.drop_at,
+                self.note_col,
+                place.map(|p| (p.after, p.split))
+            ));
+            self.img_move = None;
+            self.drop_at = None;
         }
         if let Some((i, w)) = resize_commit {
             // the width belongs to the block, so `to_markdown` writes it out as
@@ -5948,9 +7256,10 @@ impl NoteCraft {
         if let Some(action) = pic {
             match action {
                 PicAction::Attach => self.attach_dialog(),
-                PicAction::Snip => self.snip_region(),
+                PicAction::Snip => self.snip_region(ui.ctx()),
                 PicAction::Paste => {
-                    if !self.paste_from_clipboard() {
+                    let place = self.paste_place(ui.ctx());
+                    if !self.paste_from_clipboard(place) {
                         self.flash("no image or file on the clipboard");
                     }
                 }
@@ -5959,19 +7268,19 @@ impl NoteCraft {
         if let Some(action) = clip {
             match action {
                 ClipAction::Copy => match self.editor_selection() {
-                    Some((blocks, range, text)) if !text.is_empty() => {
+                    Some((targets, text)) if !text.is_empty() => {
                         ui.ctx().copy_text(text);
-                        self.flash(format!("copied {}", clip_summary(blocks.len(), range)));
+                        self.flash(format!("copied {}", clip_summary(&targets)));
                     }
                     _ => self.flash("nothing to copy"),
                 },
                 ClipAction::Cut => {
-                    if let Some((blocks, range, text)) = self.editor_selection() {
+                    if let Some((targets, text)) = self.editor_selection() {
                         if text.is_empty() {
                             self.flash("nothing to cut");
                         } else {
                             ui.ctx().copy_text(text);
-                            caret_to = self.cut_selection(blocks, range);
+                            caret_to = self.cut_selection(&targets);
                             changed = true;
                         }
                     }
@@ -5979,7 +7288,8 @@ impl NoteCraft {
                 ClipAction::Paste => {
                     // An image or a file on the clipboard still becomes a picture/link (the row in
                     // the Picture submenu does the same); only plain text comes into the line.
-                    if !self.paste_from_clipboard() {
+                    let place = self.paste_place(ui.ctx());
+                    if !self.paste_from_clipboard(place) {
                         match attach::clipboard_text() {
                             Some(text) if !text.is_empty() => {
                                 let caret = self
@@ -6005,6 +7315,19 @@ impl NoteCraft {
                 changed = true;
             }
         }
+        if let Some(i) = join_next {
+            // Delete at the end of block `i`: the block below comes up into it, the upper block's
+            // kind and words stay, and the caret sits where the two met
+            if i + 1 < self.doc.blocks.len() {
+                self.last_sel.clear();
+                let right = self.doc.blocks.remove(i + 1);
+                let at = doc::run_len(&self.doc.blocks[i].runs);
+                let left = self.doc.blocks[i].runs.clone();
+                self.doc.blocks[i].runs = doc::join_runs(&left, &right.runs);
+                caret_to = Some((i, at));
+                changed = true;
+            }
+        }
         if let Some((i, pieces)) = split_block {
             if i < self.doc.blocks.len() {
                 self.last_sel.clear();
@@ -6026,28 +7349,15 @@ impl NoteCraft {
                 changed = true;
             }
         }
-        if let Some((a, b)) = drop_blocks {
-            let target = self.remove_blocks(a, b);
-            caret_to = Some((target, 0));
-            changed = true;
-        }
-        if let Some(((a, b), typed)) = typed_over {
-            let target = self.remove_blocks(a, b);
-            let at = typed.chars().count();
-            if self
-                .doc
-                .blocks
-                .get(target)
-                .map(|b| b.text().is_empty())
-                .unwrap_or(false)
-            {
-                self.doc.blocks[target].runs = vec![doc::Run::plain(typed)];
-            } else {
-                let kind = self.doc.blocks[target].kind;
-                self.doc.blocks.insert(target, doc::Block::plain(kind, typed));
+        if delete_marked || typed_over.is_some() {
+            if let Some((i, at)) = self.delete_selected() {
+                caret_to = Some((i, at));
+                changed = true;
+                if let Some(typed) = typed_over.take() {
+                    self.selected_block = Some(i);
+                    caret_to = self.paste_text(&typed, Some(at));
+                }
             }
-            caret_to = Some((target, at));
-            changed = true;
         }
         if let Some((i, range, fix)) = fix_word {
             if let Some(block) = self.doc.blocks.get(i) {
@@ -6133,66 +7443,64 @@ impl NoteCraft {
             }
             None => self.flash("could not start the drag"),
         }
-        // Only the X11/XWayland build has an XDND source; the early return above already covers
-        // every other backend, so this arm exists to keep the function total on Windows/macOS.
-        #[cfg(not(all(unix, not(target_os = "macos"))))]
-        self.flash(crate::platform::drag_out_hint());
     }
 
-    /// Drop blocks `a..=b` (a marking that spans lines) and return the index the caret should land
-    /// on. A document always keeps one block, so removing everything leaves one empty line.
-    fn remove_blocks(&mut self, a: usize, b: usize) -> usize {
-        let n = self.doc.blocks.len();
-        if n == 0 {
-            return 0;
-        }
-        let (a, b) = (a.min(n - 1), b.min(n - 1));
-        if a > b {
-            return a;
-        }
-        self.doc.blocks.drain(a..=b);
-        self.doc.ensure_block();
-        self.last_sel.clear();
-        self.block_sel = None;
-        self.selected_block = None;
-        self.block_selection = None;
-        a.min(self.doc.blocks.len() - 1)
-    }
+    // ------------------------------------------------------------ what a command acts on
 
-    // ------------------------------------------------------------ clipboard
-
-    /// What the menu's clipboard rows act on: `(blocks, marked chars inside that block, text)`.
-    /// A marking that left its block covers whole lines — each block is its own `TextEdit`, so
-    /// egui can only mark inside one of them — otherwise it is the marked words of the block,
-    /// otherwise the block's whole line.
-    fn editor_selection(&self) -> Option<(Vec<usize>, Option<(usize, usize)>, String)> {
-        if let Some((a, b)) = self.block_sel {
-            if b > a {
-                let blocks: Vec<usize> = (a..=b).filter(|i| *i < self.doc.blocks.len()).collect();
-                if blocks.is_empty() {
-                    return None;
-                }
-                let text = blocks
-                    .iter()
-                    .filter_map(|i| self.doc.blocks.get(*i).map(|blk| blk.text()))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                return Some((blocks, None, text));
+    /// The lines a command acts on, and **the words it covers in each**. One marking is one target
+    /// list, whether it sits inside a line, runs across five of them, or came from Shift+arrow: the
+    /// first and last lines carry the partial range a drag left behind, the lines between are whole.
+    /// With nothing marked it is the line the caret is in, whole.
+    fn targets(&self) -> Vec<(usize, Option<(usize, usize)>)> {
+        if let Some(m) = self.mark {
+            let ranges = doc::mark_ranges(&self.doc, &m);
+            if !ranges.is_empty() {
+                return ranges;
             }
         }
-        let i = self.selected_block?;
-        let block = self.doc.blocks.get(i)?;
-        let text = block.text();
-        let n = text.chars().count();
-        let range = self
-            .block_selection
-            .map(|(s, e)| (s.min(n), e.min(n)))
-            .filter(|(s, e)| e > s);
-        let text = match range {
-            Some((s, e)) => text.chars().skip(s).take(e - s).collect(),
-            None => text,
-        };
-        Some((vec![i], range, text))
+        match self.selected_block {
+            Some(i) if i < self.doc.blocks.len() => vec![(i, self.block_selection)],
+            _ => Vec::new(),
+        }
+    }
+
+    /// The marked words themselves, line by line, with the line breaks between them: what Copy takes
+    /// and what the menu's state is read from. A marking that runs across lines yields one entry per
+    /// line it touches, so copying it puts back exactly the words that were marked.
+    fn editor_selection(&self) -> Option<(Vec<(usize, Option<(usize, usize)>)>, String)> {
+        let targets = self.targets();
+        if targets.is_empty() {
+            return None;
+        }
+        let text = targets
+            .iter()
+            .filter_map(|(i, r)| {
+                let b = self.doc.blocks.get(*i)?;
+                Some(match r {
+                    Some(_) => doc::slice_runs(&b.runs, *r)
+                        .iter()
+                        .map(|run| run.text.clone())
+                        .collect::<String>(),
+                    None => b.text(),
+                })
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Some((targets, text))
+    }
+
+    /// Take the marking out of the document — the words, not the lines — and return where the caret
+    /// lands: the join point, on the line the marking started in.
+    fn delete_selected(&mut self) -> Option<(usize, usize)> {
+        let ranges = self.targets();
+        let at = doc::cut_selection(&mut self.doc, &ranges)?;
+        self.mark = None;
+        self.drag_from = None;
+        self.block_selection = None;
+        self.last_sel.clear();
+        self.selected_block = Some(at.0);
+        self.caret = Some(at);
+        Some(at)
     }
 
     /// The caret position (char index) the editor last left in block `i`.
@@ -6202,99 +7510,55 @@ impl NoteCraft {
             .map(|r| r.primary.index)
     }
 
-    /// Remove what Copy just took: the marked lines, the marked words, or the whole line. A document
-    /// keeps at least one block, so the last line is emptied rather than removed.
-    fn cut_selection(
-        &mut self,
-        blocks: Vec<usize>,
-        range: Option<(usize, usize)>,
-    ) -> Option<(usize, usize)> {
-        match range {
-            Some((s, e)) => {
-                let i = *blocks.first()?;
-                let block = self.doc.blocks.get(i)?;
-                let old = block.text();
-                let chars: Vec<char> = old.chars().collect();
-                let (s, e) = (s.min(chars.len()), e.min(chars.len()));
-                let mut new = String::new();
-                new.extend(chars[..s].iter());
-                new.extend(chars[e..].iter());
-                self.doc.blocks[i].runs = doc::remap_runs(&block.runs, &old, &new);
-                self.block_selection = None;
-                self.last_sel.remove(&i);
-                Some((i, s))
-            }
-            None if blocks.len() > 1 => {
-                let at = self.remove_blocks(blocks[0], *blocks.last()?);
-                Some((at, 0))
-            }
-            None => {
-                let i = *blocks.first()?;
-                if self.doc.blocks.len() > 1 {
-                    let at = self.remove_blocks(i, i);
-                    Some((at, 0))
-                } else {
-                    self.doc.blocks[i].runs.clear();
-                    self.block_selection = None;
-                    self.last_sel.remove(&i);
-                    Some((i, 0))
-                }
-            }
-        }
+    /// Remove what Copy just took: the marked words, the marked words of several lines, or the
+    /// whole line when nothing is marked. A document keeps at least one block.
+    fn cut_selection(&mut self, ranges: &[(usize, Option<(usize, usize)>)]) -> Option<(usize, usize)> {
+        let at = doc::cut_selection(&mut self.doc, ranges)?;
+        self.mark = None;
+        self.drag_from = None;
+        self.block_selection = None;
+        self.caret = Some(at);
+        self.last_sel.clear();
+        Some(at)
     }
 
-    /// Paste plain text where the marking is: over the marked lines, over the marked words, or at
+    /// Paste plain text where the marking is: over the marked words, over the lines it covers, or at
     /// the caret. Line breaks in the text make several blocks — the same rule typing follows — and
     /// `remap_runs` keeps the properties around the paste, so pasting into a bold word stays bold.
     fn paste_text(&mut self, text: &str, caret: Option<usize>) -> Option<(usize, usize)> {
-        let (blocks, range, _) = self.editor_selection()?;
-        if blocks.len() > 1 {
-            // the marked lines are replaced by the pasted ones
-            let at = self.remove_blocks(blocks[0], *blocks.last()?);
-            let mut caret = (at, 0);
-            for (n, line) in text.split('\n').enumerate() {
-                let idx = at + n;
-                if n == 0 && self.doc.blocks.get(idx).map(|b| b.text().is_empty()).unwrap_or(false)
-                {
-                    self.doc.blocks[idx].runs = vec![doc::Run::plain(line)];
-                } else {
-                    self.doc.blocks.insert(idx, doc::Block::plain(doc::Kind::Para, line));
-                }
-                caret = (idx, line.chars().count());
-            }
-            self.block_sel = None;
-            self.block_selection = None;
-            return Some(caret);
+        // the marking comes out first (word-exact, across lines), then the text goes in where it was
+        let ranges = self.targets();
+        if ranges.is_empty() {
+            return None;
         }
-        let i = blocks[0];
+        let (i, at) = if ranges.len() > 1 || ranges[0].1.is_some() {
+            self.cut_selection(&ranges)?
+        } else {
+            let i = ranges[0].0;
+            let len = self.doc.blocks.get(i).map(|b| doc::run_len(&b.runs))?;
+            (i, caret.unwrap_or(len).min(len))
+        };
         let (old, kind, runs) = {
             let b = self.doc.blocks.get(i)?;
             (b.text(), b.kind, b.runs.clone())
         };
-        let chars = old.chars().count();
-        let (s, e) = match range {
-            Some((s, e)) => (s.min(chars), e.min(chars)),
-            None => {
-                let at = caret.unwrap_or(chars).min(chars);
-                (at, at)
-            }
-        };
-        let pieces = doc::paste_runs(&runs, &old, Some((s, e)), text);
-        let tail = chars - e;
+        let pieces = doc::paste_runs(&runs, &old, Some((at, at)), text);
+        let tail = old.chars().count() - at;
         let mut pieces = pieces.into_iter();
         self.doc.blocks[i].runs = pieces.next().unwrap_or_default();
-        let (mut at, mut last) = (i + 1, i);
+        let (mut next, mut last) = (i + 1, i);
         for p in pieces {
             let mut b = doc::Block::new(kind);
             b.runs = p;
-            self.doc.blocks.insert(at, b);
-            last = at;
-            at += 1;
+            self.doc.blocks.insert(next, b);
+            last = next;
+            next += 1;
         }
         // the caret sits where the pasted text ends, not at the end of the line it landed in
         let caret_at = doc::run_len(&self.doc.blocks[last].runs).saturating_sub(tail);
         self.block_selection = None;
-        self.last_sel.remove(&i);
+        self.caret = Some((last, caret_at));
+        self.last_sel.clear();
         Some((last, caret_at))
     }
 
@@ -6614,83 +7878,154 @@ impl NoteCraft {
 
     // ------------------------------------------------------------ attachments
 
-    /// Append markdown for already-resolved snippets to this page and save now
-    /// (attachments must not sit in the autosave debounce).
-    fn append_block(&mut self, snippets: &[String]) {
-        if snippets.is_empty() {
-            return;
+    /// A signature of what is on the clipboard, and whether it was pasted a moment ago.
+    ///
+    /// `Some(true)` means "this exact clipboard has just been handled — say so, attach nothing",
+    /// `Some(false)` the same for a clipboard that could not be used, `None` when this is a new paste
+    /// and the caller should do the work.
+    fn paste_repeat(&mut self) -> Option<bool> {
+        let files = attach::clipboard_files();
+        let key = if let Some(img) = attach::clipboard_image() {
+            let (w, h) = img.dimensions();
+            let raw = img.as_raw();
+            // a cheap fingerprint: the size and the last 64 bytes tell a re-run of this paste from a
+            // fresh copy of another picture
+            let tail = raw
+                .iter()
+                .rev()
+                .take(64)
+                .fold(0u64, |a, b| a.wrapping_mul(31) ^ u64::from(*b));
+            format!("image:{w}x{h}:{}:{tail}", raw.len())
+        } else if !files.is_empty() {
+            format!(
+                "files:{}",
+                files
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        } else {
+            return None;
+        };
+        let repeat = self
+            .last_paste
+            .as_ref()
+            .map(|(last, when)| {
+                *last == key && when.elapsed() < std::time::Duration::from_millis(400)
+            })
+            .unwrap_or(false);
+        self.last_paste = Some((key, std::time::Instant::now()));
+        if repeat { Some(true) } else { None }
+    }
+
+    /// Where a paste would land: under the pointer when it is over the note, else nowhere (the end of
+    /// the page, as before). A paste is not a drag, so egui's own pointer position is good here.
+    fn paste_place(&self, ctx: &egui::Context) -> Option<DropPlace> {
+        let pos = ctx.input(|i| i.pointer.hover_pos())?;
+        if !self.note_col.map(|r| r.contains(pos)).unwrap_or(false) {
+            return None;
+        }
+        let saved = self.drop_at;
+        let place = drop_place_in(&self.block_rects, &self.line_hits, pos, |i| {
+            self.doc.blocks.get(i).map(|b| b.text().chars().count()).unwrap_or(0)
+        }, true);
+        let _ = saved;
+        place
+    }
+
+    /// The place a drop would land, measured against the blocks as they were drawn last frame.
+    ///
+    /// A **carried picture** is a block being moved, so it lands on a block boundary: `split` is off
+    /// while one is in hand. Inside a sentence the only way to honour the pointer is to cut the
+    /// sentence in two — a text edit produced by a move, decided by a couple of pixels of pointer y,
+    /// which is what made repositioning feel like a lottery. A dragged-in file still follows the Word
+    /// rule (`paste_place`, `drop_place_in(split_ok: true)`): there the pointer is choosing where new
+    /// content goes, and the sentence really is being parted to make room.
+    fn drop_place(&self) -> Option<DropPlace> {
+        let pos = self.drop_at?;
+        let doc_blocks = &self.doc.blocks;
+        drop_place_in(
+            &self.block_rects,
+            &self.line_hits,
+            pos,
+            |i| doc_blocks.get(i).map(|b| b.text().chars().count()).unwrap_or(0),
+            self.img_move.is_none(),
+        )
+    }
+
+    /// Put the blocks for `snippets` where the caller asked: between the two halves of the paragraph
+    /// it was dropped into, after the block it was dropped under, or at the end when there is no
+    /// position at all (the toolbar's file chooser, a paste with no pointer).
+    ///
+    /// Returns the index of the first block inserted, so the view can be brought to it — the drop
+    /// point is where the eye already is, so nothing else moves.
+    fn insert_snippets(&mut self, snippets: &[String], at: Option<DropPlace>) -> Option<usize> {
+        let mut incoming: Vec<doc::Block> = Vec::new();
+        for s in snippets {
+            incoming.extend(doc::from_markdown(s).blocks);
+        }
+        // TEMPORARY instrumentation (remove after the drop is fixed)
+        dnd_log(&format!(
+            "insert: {} snippet(s) -> {} block(s) {:?}, at={:?}, doc before={}",
+            snippets.len(),
+            incoming.len(),
+            incoming.iter().map(|b| b.kind).collect::<Vec<_>>(),
+            at.map(|p| (p.after, p.split)),
+            self.doc.blocks.len()
+        ));
+        if incoming.is_empty() {
+            return None;
         }
         self.snapshot();
-        let mut body = self.body.trim_end().to_string();
-        if !body.is_empty() {
-            body.push_str("\n\n");
-        }
-        for s in snippets {
-            body.push_str(s);
-            body.push('\n');
-        }
-        self.body = body;
-        // and into the document, which is what the editor shows
-        for s in snippets {
-            self.doc.blocks.extend(doc::from_markdown(s).blocks);
-        }
+        let first = match at {
+            Some(DropPlace { split: Some((bi, idx)), .. }) if bi < self.doc.blocks.len() => {
+                // the sentence is cut in two at the pointer and the file goes between the halves;
+                // a block that cannot be cut (a picture, a code block, one of its ends) is a gap
+                match doc::split_and_insert(&mut self.doc.blocks, bi, idx, incoming.clone()) {
+                    Some(at) => at,
+                    None => {
+                        let at = (bi + 1).min(self.doc.blocks.len());
+                        self.doc.blocks.splice(at..at, incoming);
+                        at
+                    }
+                }
+            }
+            Some(place) => {
+                let at = place.after.min(self.doc.blocks.len());
+                self.doc.blocks.splice(at..at, incoming);
+                at
+            }
+            None => {
+                let at = self.doc.blocks.len();
+                self.doc.blocks.extend(incoming);
+                at
+            }
+        };
+        self.body = doc::to_markdown(&self.doc);
         self.mark_dirty();
-        self.save();
-        // and follow it down: what was just attached is at the foot of the page
-        self.scroll_to_bottom = true;
+        let saved = self.save();
+        // TEMPORARY instrumentation (remove after the drop is fixed)
+        dnd_log(&format!(
+            "insert done: first={first:?} doc after={} save={saved} page={:?} dirty={}",
+            self.doc.blocks.len(),
+            self.page.as_ref().map(|p| p.display().to_string()),
+            self.dirty
+        ));
+        // bring the landing point into view without throwing the reader to the foot of the page
+        self.scroll_to_block = Some(first);
+        Some(first)
     }
 
     /// Attach files that already exist on disk (drop, paste, file chooser).
-    fn attach_paths(&mut self, paths: &[PathBuf]) {
-        let Some(page) = self.page.clone() else {
-            self.flash("open a page first");
-            return;
-        };
-        let mut snippets = Vec::new();
-        let mut failed = 0usize;
-        for p in paths {
-            match attach::snippet_for_file(&page, p) {
-                Ok(s) => snippets.push(s),
-                Err(_) => failed += 1,
-            }
-        }
-        if snippets.is_empty() {
-            self.flash(if failed > 0 {
-                "nothing could be attached"
-            } else {
-                "nothing to attach"
-            });
-            return;
-        }
-        let n = snippets.len();
-        self.append_block(&snippets);
-        dnd_log(&format!(
-            "attached {n} file(s): {}",
-            paths
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-        let msg = if n == 1 {
-            "attached 1 file".to_string()
-        } else {
-            format!("attached {n} files")
-        };
-        self.flash(msg);
-    }
-
-    /// Ctrl+V and the toolbar Paste button: an image or a list of files on the
-    /// clipboard becomes an attachment. Returns true when something was attached.
-    /// Every attempt is logged: a silent failure here is indistinguishable from
-    /// "the key never arrived", which is what made this hard to pin down.
     /// Register our own OLE drop target on the window, once, and attach anything it delivered.
     ///
-    /// Only Windows needs this: `winit` asks a drag source for `CF_HDROP` alone, and a browser offers
-    /// a dragged image as a virtual file instead, so without this the drag never becomes an event.
+    /// Only Windows needs this: `winit` asks a drag source for `CF_HDROP` alone, and a browser
+    /// offers a dragged image as a virtual file instead, so without this the drag never becomes an
+    /// event.
     #[cfg(windows)]
     fn windows_drops(&mut self, frame: &mut eframe::Frame) {
-        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
         if !self.win_dnd_tried {
             self.win_dnd_tried = true;
             if let Ok(handle) = frame.window_handle() {
@@ -6711,41 +8046,108 @@ impl NoteCraft {
             items.push(item);
         }
         for item in items {
-            {
-                match item {
-                    crate::windows_dnd::Dropped::Paths(paths) => {
-                        dnd_log(&format!("windows drop: {} real file(s)", paths.len()));
-                        self.attach_paths(&paths);
+            match item {
+                crate::windows_dnd::Dropped::Paths(paths) => {
+                    dnd_log(&format!("windows drop: {} real file(s)", paths.len()));
+                    self.attach_paths(&paths, None);
+                }
+                crate::windows_dnd::Dropped::Hover(on) => {
+                    // The toolkit's own hover events stopped when we took the drop target over.
+                    if on && !self.drop_hover {
+                        self.flash("drag detected — release to attach");
                     }
-                    crate::windows_dnd::Dropped::Hover(on) => {
-                        // The toolkit's own hover events stopped when we took the drop target over.
-                        if on && !self.drop_hover {
-                            self.flash("drag detected — release to attach");
-                        }
-                        self.drop_hover = on;
-                    }
-                    crate::windows_dnd::Dropped::Refused(formats) => {
-                        dnd_log(&format!("windows drop: nothing readable, source offered {formats}"));
-                        self.flash("that drop held nothing NoteCraft can read");
-                    }
-                    crate::windows_dnd::Dropped::Blobs(blobs) => {
-                        dnd_log(&format!("windows drop: {} virtual file(s)", blobs.len()));
-                        let paths = blob_files(&blobs);
-                        if paths.is_empty() {
-                            self.flash("could not read what was dropped");
-                        } else {
-                            self.attach_paths(&paths);
-                        }
+                    self.drop_hover = on;
+                }
+                crate::windows_dnd::Dropped::Refused(formats) => {
+                    dnd_log(&format!("windows drop: nothing readable, source offered {formats}"));
+                    self.flash("that drop held nothing NoteCraft can read");
+                }
+                crate::windows_dnd::Dropped::Blobs(blobs) => {
+                    dnd_log(&format!("windows drop: {} virtual file(s)", blobs.len()));
+                    let paths = blob_files(&blobs);
+                    if paths.is_empty() {
+                        self.flash("could not read what was dropped");
+                    } else {
+                        self.attach_paths(&paths, None);
                     }
                 }
             }
         }
     }
 
-    fn paste_from_clipboard(&mut self) -> bool {
+    fn attach_paths(&mut self, paths: &[PathBuf], at: Option<DropPlace>) {
+        let Some(page) = self.page.clone() else {
+            self.flash("open a page first");
+            return;
+        };
+        // One paste or drop, one attachment: a frame that egui re-runs delivers the same clipboard (or
+        // the same drop) twice, and two copies of a picture with a " 2" name is not what was asked for.
+        let key = paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Some((last, when)) = &self.last_attach {
+            if *last == key && when.elapsed() < std::time::Duration::from_millis(500) {
+                dnd_log("attach: same file again within 500 ms — ignored");
+                return;
+            }
+        }
+        self.last_attach = Some((key, std::time::Instant::now()));
+        let mut snippets = Vec::new();
+        let mut failed = 0usize;
+        for p in paths {
+            match attach::snippet_for_file(&page, p) {
+                Ok(s) => snippets.push(s),
+                Err(_) => failed += 1,
+            }
+        }
+        if snippets.is_empty() {
+            self.flash(if failed > 0 {
+                "nothing could be attached"
+            } else {
+                "nothing to attach"
+            });
+            return;
+        }
+        let n = snippets.len();
+        let first = self.insert_snippets(&snippets, at);
+        dnd_log(&format!(
+            "attached {n} file(s): {}",
+            paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        let what = if n == 1 {
+            "attached 1 file".to_string()
+        } else {
+            format!("attached {n} files")
+        };
+        let msg = match first {
+            Some(i) if self.doc.blocks[i].kind == doc::Kind::Image => format!("{what} at line {}", i + 1),
+            Some(i) => format!("{what} at line {}", i + 1),
+            None => what,
+        };
+        self.flash(msg);
+    }
+
+    /// Ctrl+V and the toolbar Paste button: an image or a list of files on the
+    /// clipboard becomes an attachment. Returns true when something was attached.
+    /// Every attempt is logged: a silent failure here is indistinguishable from
+    /// "the key never arrived", which is what made this hard to pin down.
+    fn paste_from_clipboard(&mut self, at: Option<DropPlace>) -> bool {
         if self.page.is_none() {
             dnd_log("paste: no page open");
             return false;
+        }
+        // One Ctrl+V is one paste. egui re-runs a discarded frame with its event list restored, so this
+        // can be called twice for one keystroke: the clipboard's own content is what tells a repeat from
+        // a second paste, and a repeat reports "handled" without attaching anything a second time.
+        if let Some(repeat) = self.paste_repeat() {
+            dnd_log("paste: repeat of the same clipboard within 400 ms — handled once");
+            return repeat;
         }
         if let Some(img) = attach::clipboard_image() {
             let (w, h) = (img.width(), img.height());
@@ -6755,7 +8157,7 @@ impl NoteCraft {
             match attach::snippet_for_image(&page, &img) {
                 Ok(snippet) => {
                     dnd_log(&format!("paste: image {w}x{h}"));
-                    self.append_block(&[snippet]);
+                    self.insert_snippets(&[snippet], at);
                     self.flash("image pasted into assets/");
                 }
                 Err(e) => {
@@ -6776,7 +8178,7 @@ impl NoteCraft {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
-            self.attach_paths(&files);
+            self.attach_paths(&files, at);
             return true;
         }
         let text_len = arboard::Clipboard::new()
@@ -6790,11 +8192,14 @@ impl NoteCraft {
         false
     }
 
-    /// Toolbar "Snip" button / Ctrl+Shift+S: grab the screen and put a piece of it in the note.
+    /// Toolbar "Snip" button / Ctrl+Shift+S: grab a region of the screen and put
+    /// it in the note.
     ///
-    /// The work happens on the next frame in `begin_snip`, which has the `egui::Context` needed to
-    /// hide and restore the window; this only records the request so every caller stays a one-liner.
-    fn snip_region(&mut self) {
+    /// The screen behind the window is grabbed whole (`platform::capture_screen`, one
+    /// implementation per platform) and the region is chosen afterwards in this app's own crop
+    /// overlay — no compositor-specific region tool, and the same path on X11, Wayland, Windows
+    /// and macOS.
+    fn snip_region(&mut self, ctx: &egui::Context) {
         if self.page.is_none() {
             self.flash("open a page first");
             return;
@@ -6803,17 +8208,6 @@ impl NoteCraft {
             self.flash("a snip is already in progress");
             return;
         }
-        self.snip_request = true;
-    }
-
-    /// Hide the window, capture the screen behind it, and hand the file to `poll_snip`.
-    ///
-    /// The window hides itself (`ViewportCommand::Visible`, which every backend implements), a
-    /// worker thread waits for the hide to finish and captures the whole screen through
-    /// `platform::capture_screen`, then asks for the window back and reports. The region is chosen
-    /// afterwards in the app's own crop overlay — no compositor-specific region tool, and the same
-    /// code path on X11, Wayland, Windows and macOS.
-    fn begin_snip(&mut self, ctx: &egui::Context) {
         dnd_log("snip: requested");
         let path = std::env::temp_dir().join(format!(
             "notecraft-snip-{}.png",
@@ -6821,8 +8215,10 @@ impl NoteCraft {
         ));
         let _ = std::fs::remove_file(&path);
         let (tx, rx) = std::sync::mpsc::channel();
-        // egui's Context is Send + Sync: the worker can ask for the window back itself, which is
-        // what makes a hidden (and therefore unpainted) window come back without a compositor tool.
+        // Hide through egui, not through the window manager: `ViewportCommand::Visible(false)`
+        // is implemented by every backend, and the `Context` is Send + Sync, so the worker can
+        // ask for the window back itself — a hidden, unpainted window cannot do that from the
+        // UI thread.
         let ctx2 = ctx.clone();
         let path2 = path.clone();
         std::thread::spawn(move || {
@@ -6850,29 +8246,27 @@ impl NoteCraft {
 
     /// Attach a finished grab, or give up on one that was cancelled.
     fn poll_snip(&mut self) {
-        // The capture thread reports its verdict; a failure ends the wait at once instead of after
-        // a timeout, and says why (no tool, no permission, no display).
-        let mut failure: Option<String> = None;
-        if let Some(p) = self.pending_snip.as_mut() {
-            match p.outcome.take() {
-                Some(rx) => match rx.try_recv() {
-                    Ok(Err(e)) => failure = Some(e),
-                    Ok(Ok(())) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
-                    Err(std::sync::mpsc::TryRecvError::Empty) => p.outcome = Some(rx),
-                },
-                None => {}
-            }
-        }
-        if let Some(e) = failure {
-            let msg = format!("cannot grab the screen: {e}");
-            dnd_log(&format!("snip: {msg}"));
-            self.pending_snip = None;
-            self.flash(msg);
-            return;
-        }
         let Some(p) = self.pending_snip.as_mut() else {
             return;
         };
+        // The capture thread reports its verdict; a failure ends the wait at once instead of
+        // sitting out the timeout, and says why (no tool, no permission, no display).
+        let mut failure: Option<String> = None;
+        if let Some(rx) = p.outcome.take() {
+            match rx.try_recv() {
+                Ok(Err(e)) => failure = Some(e),
+                Ok(Ok(())) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
+                Err(std::sync::mpsc::TryRecvError::Empty) => p.outcome = Some(rx),
+            }
+        }
+        if let Some(e) = failure {
+            let path = p.path.clone();
+            let _ = std::fs::remove_file(&path);
+            self.pending_snip = None;
+            dnd_log(&format!("snip: {e}"));
+            self.flash(format!("cannot grab the screen: {e}"));
+            return;
+        }
         let len = std::fs::metadata(&p.path).map(|m| m.len()).unwrap_or(0);
         if len != p.len {
             p.len = len;
@@ -6910,7 +8304,7 @@ impl NoteCraft {
         if files.is_empty() {
             return; // cancelled
         }
-        self.attach_paths(&files);
+        self.attach_paths(&files, None);
     }
 
     /// Read mode: the **document** rendered — the same blocks, kinds, runs and properties the editor
@@ -6921,6 +8315,9 @@ impl NoteCraft {
     /// regenerated before it agreed with the document.
     fn read_body(&mut self, ui: &mut egui::Ui) {
         let t = self.theme;
+        // the column, once: a picture must be measured against the note, not against whatever a
+        // wider row above it did to the layout (see `edit_doc`)
+        let column_w = ui.available_width();
         let page = self.page.clone();
         let mut toggles: Vec<usize> = Vec::new();
         let mut i = 0usize;
@@ -6944,6 +8341,44 @@ impl NoteCraft {
                         CornerRadius::ZERO,
                         t.border,
                     );
+                }
+                doc::Kind::Table => {
+                    // Read mode paints the grid: a table is a table when it is read, not a paragraph
+                    // with pipes in it. A cell that is too long is clipped to its column — reading is
+                    // not the place to reflow someone's table.
+                    let grid = self.doc.blocks[i].table.clone().unwrap_or_default();
+                    let cols = grid.cols().max(1);
+                    let cw = (ui.available_width() - 4.0).max(120.0) / cols as f32;
+                    let row_h = size * 1.75;
+                    for (rn, row) in grid.rows.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::ZERO;
+                            for cn in 0..cols {
+                                let (rect, _) =
+                                    ui.allocate_exact_size(Vec2::new(cw, row_h), Sense::hover());
+                                let painter = ui.painter().with_clip_rect(rect.shrink2(Vec2::new(6.0, 0.0)));
+                                painter.text(
+                                    egui::pos2(rect.left() + 6.0, rect.center().y),
+                                    egui::Align2::LEFT_CENTER,
+                                    row.get(cn).cloned().unwrap_or_default(),
+                                    FontId::new(
+                                        size,
+                                        theme::note_fam(if rn == 0 {
+                                            theme::F_SEMI
+                                        } else {
+                                            theme::F_REG
+                                        }),
+                                    ),
+                                    if rn == 0 { t.heading } else { t.text },
+                                );
+                                let stroke = Stroke::new(1.0_f32, t.border);
+                                if cn + 1 < cols {
+                                    ui.painter().vline(rect.right(), rect.y_range(), stroke);
+                                }
+                                ui.painter().hline(rect.x_range(), rect.bottom(), stroke);
+                            }
+                        });
+                    }
                 }
                 doc::Kind::Image => {
                     let b = &self.doc.blocks[i];
@@ -6974,7 +8409,7 @@ impl NoteCraft {
                             );
                         }
                         imgcache::Source::Known(intrinsic) => {
-                            let box_w = (ui.available_width() - 40.0).max(120.0);
+                            let box_w = (column_w - (GUTTER - 10.0) - 40.0).max(120.0);
                             // same rule as the editor: the crop changes the height, not the width
                             let disp = picture_disp(crop_size(b.crop, intrinsic), width, box_w);
                             // Same picture, same placement rules as the editor: read mode is a
@@ -7083,7 +8518,29 @@ impl NoteCraft {
                         // the strike-through is in the text's own format now, not a painted line
                         let mut job = highlight::runs_job(&text, &runs, &t, size, kind, done);
                         job.wrap.max_width = ui.available_width();
-                        ui.label(job);
+                        // The emoji have to be painted over the label, so its galley is needed — and
+                        // `ui.label` does not hand it back. `Label` overwrites exactly three things
+                        // before laying the job out (wrap width from the available width, and the
+                        // halign/justify from the layout); the same three here make the font cache
+                        // hand back the very galley the label drew, so the paint lands on the glyph's
+                        // own cell. If that ever drifts the sizes stop matching and the emoji are
+                        // simply not painted, rather than painted askew.
+                        let mut probe = job.clone();
+                        probe.wrap.max_width = ui.available_width();
+                        probe.halign = ui.layout().horizontal_placement();
+                        probe.justify = ui.layout().horizontal_justify();
+                        let resp = ui.label(job);
+                        let galley = ui.fonts_mut(|f| f.layout_job(probe));
+                        if (galley.size() - resp.rect.size()).length() < 1.5 {
+                            emoji::paint(
+                                &ui.painter().with_clip_rect(ui.clip_rect()),
+                                &text,
+                                &galley,
+                                resp.rect.min,
+                                ui.ctx(),
+                                t.bg,
+                            );
+                        }
                     });
                 }
             }
@@ -7400,6 +8857,227 @@ impl NoteCraft {
         }
     }
 
+    /// The symbol picker: a search field, the group chips and a grid of marks.
+    ///
+    /// A **window**, not a menu: a menu closes on the first press inside it, and putting three marks
+    /// into a sentence is one gesture, not three openings. It stays open after a press, so the next
+    /// mark is one click away, and `Esc` or the `×` closes it.
+    fn glyph_picker(&mut self, ctx: &egui::Context) {
+        let Some(mut pick) = self.glyph_pick.take() else {
+            return;
+        };
+        let t = self.theme;
+        let mut picked: Option<char> = None;
+        let mut close = false;
+        egui::Window::new("symbols")
+            .id(egui::Id::new("glyph_picker"))
+            .title_bar(false)
+            .resizable(false)
+            .collapsible(false)
+            .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 96.0))
+            .min_width(438.0)
+            .max_width(438.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(t.panel2)
+                    .stroke(Stroke::new(1.0_f32, t.border))
+                    .corner_radius(CornerRadius::same(14))
+                    .inner_margin(Margin::same(12)),
+            )
+            .show(ctx, |ui| {
+                ui.set_width(414.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("symbols")
+                            .family(theme::fam(theme::F_MONO))
+                            .size(11.0)
+                            .color(t.faint),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if theme::icon_button(ui, "×", "close", &t).clicked() {
+                            close = true;
+                        }
+                    });
+                });
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut pick.query)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("search — tick, arrow right, fire, 2192"),
+                );
+                if pick.focus {
+                    resp.request_focus();
+                    pick.focus = false;
+                }
+                if resp.changed() {
+                    // a search is a search of the whole catalogue; the chips are how you browse
+                    pick.group = None;
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    close = true;
+                }
+                ui.add_space(6.0);
+                // The chips: recents first (what this note-writing actually uses), then the groups.
+                if pick.query.trim().is_empty() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = Vec2::new(5.0, 5.0);
+                        if theme::chip(
+                            ui,
+                            "Recent",
+                            if pick.group.is_none() { t.accent } else { t.faint },
+                            &t,
+                        )
+                        .clicked()
+                        {
+                            pick.group = None;
+                        }
+                        for (key, label) in glyphs::GROUPS {
+                            let on = pick.group == Some(key);
+                            let chip =
+                                theme::chip(ui, label, if on { t.accent } else { t.faint }, &t);
+                            if chip
+                                .on_hover_text(format!("{label} · {} marks", glyphs::group_len(key)))
+                                .clicked()
+                            {
+                                pick.group = Some(key);
+                            }
+                        }
+                    });
+                    ui.add_space(6.0);
+                }
+                // What the grid shows: the search when there is one, else the chosen group, else
+                // the recents row.
+                let list: Vec<&'static glyphs::Glyph> = if !pick.query.trim().is_empty() {
+                    glyphs::search(&pick.query, 400)
+                } else {
+                    match pick.group {
+                        Some(key) => glyphs::in_group(key).collect(),
+                        None => self
+                            .glyph_recent
+                            .iter()
+                            .filter_map(|c| glyphs::by_char(*c))
+                            .collect(),
+                    }
+                };
+                egui::ScrollArea::vertical()
+                    .id_salt("glyph_grid")
+                    .max_height(252.0)
+                    // the height follows the list: a search with two hits should not leave a
+                    // 250 pt empty well under them
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        if list.is_empty() {
+                            ui.label(
+                                RichText::new(if pick.query.trim().is_empty() {
+                                    "nothing used yet — pick a group above"
+                                } else {
+                                    "nothing matches"
+                                })
+                                .size(12.5)
+                                .color(t.faint),
+                            );
+                            return;
+                        }
+                        // Every cell the same square, painted rather than a `Button`: a glyph's own
+                        // advance width made the grid uneven (383, 398, 445, 492…), so a pointer aimed
+                        // between two cells fell in a gap and the grid read as unclickable. The face is
+                        // the note's own, so a mark looks in the grid exactly as it will in the page.
+                        let per_row = 13;
+                        let cell = Vec2::splat(30.0);
+                        let font = egui::FontId::new(17.0, theme::note_fam(theme::F_REG));
+                        for row in list.chunks(per_row) {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing = Vec2::new(3.0, 3.0);
+                                for g in row {
+                                    let (rect, resp) =
+                                        ui.allocate_exact_size(cell, Sense::click());
+                                    if resp.hovered() {
+                                        ui.painter().rect_filled(
+                                            rect,
+                                            CornerRadius::same(6),
+                                            t.card_hover,
+                                        );
+                                    }
+                                    // a colour emoji is a picture, not a glyph: the same painting the
+                                    // note does, so the grid shows what the page will
+                                    if !emoji::paint_in_rect(
+                                        ui.painter(),
+                                        rect.shrink(3.0),
+                                        g.ch,
+                                        ui.ctx(),
+                                    ) {
+                                        ui.painter().text(
+                                            rect.center(),
+                                            egui::Align2::CENTER_CENTER,
+                                            g.ch.to_string(),
+                                            font.clone(),
+                                            t.text,
+                                        );
+                                    }
+                                    let resp = resp.on_hover_text(format!(
+                                        "{} · {}",
+                                        g.name,
+                                        glyphs::group_label(g.group)
+                                    ));
+                                    if resp.clicked() {
+                                        picked = Some(g.ch);
+                                    }
+                                }
+                            });
+                        }
+                    });
+            });
+        if close {
+            self.glyph_pick = None;
+        } else {
+            self.glyph_pick = Some(pick);
+        }
+        if let Some(ch) = picked {
+            self.insert_glyph(ch);
+        }
+    }
+
+    /// Put one mark in at the caret. The picker, the palette's symbol rows and the right-click
+    /// `Insert` menu all come through here, so all three land in the same place and take the same
+    /// undo step.
+    fn insert_glyph(&mut self, ch: char) {
+        if self.page.is_none() {
+            return;
+        }
+        // where it goes: the line the caret is in, else the line last worked in, else the page's last
+        // line that can hold words (a trailing picture, rule or table cannot)
+        let stray = self
+            .selected_block
+            .map(|i| i >= self.doc.blocks.len())
+            .unwrap_or(true);
+        if stray {
+            self.selected_block = (0..self.doc.blocks.len())
+                .rev()
+                .find(|i| joins_words(self.doc.blocks[*i].kind));
+        }
+        let caret = match (self.caret, self.selected_block) {
+            (Some((i, at)), Some(b)) if i == b => Some(at),
+            _ => None,
+        };
+        let Some((block, at)) = self.paste_text(&ch.to_string(), caret) else {
+            return;
+        };
+        self.caret = Some((block, at));
+        self.block_selection = None;
+        self.snapshot_typing();
+        self.body = doc::to_markdown(&self.doc);
+        self.mark_dirty();
+        self.remember_glyph(ch);
+    }
+
+    /// Move a mark to the front of the recents row, without duplicates and without growing past
+    /// `GLYPH_RECENT_MAX`. Saved with the rest of the state, so the picker opens on yesterday's marks.
+    fn remember_glyph(&mut self, ch: char) {
+        self.glyph_recent.retain(|c| *c != ch);
+        self.glyph_recent.insert(0, ch);
+        self.glyph_recent.truncate(GLYPH_RECENT_MAX);
+        self.save_state_soon();
+    }
+
     fn palette(&mut self, ctx: &egui::Context) {
         let t = self.theme;
         let Some(pal) = self.palette.as_mut() else { return };
@@ -7524,7 +9202,8 @@ impl NoteCraft {
                     self.sec = Some(sec);
                     self.view = View::Pages;
                 }
-                Action::Command(c) => self.run_command(c),
+                Action::Command(c) => self.run_command(c, ctx),
+                Action::Glyph(ch) => self.insert_glyph(ch),
                 Action::Tag(tag) => self.filter_by_tag(&tag),
             }
         }
@@ -7533,21 +9212,114 @@ impl NoteCraft {
         }
     }
 
+    /// The find strip in the status bar: which occurrence of the last search the caret is on, the two
+    /// buttons that walk the rest of them, and the word being counted.
+    ///
+    /// The palette is still the search — it reads titles, tags and bodies across the vault — but it can
+    /// only ever *land* on one hit. Eighteen occurrences of a word used to mean eighteen returns to the
+    /// palette, and the count in the row ("body · 18 matches") was a number with nothing behind it.
+    ///
+    /// Returns the width it took, so the bar's budget stays honest.
+    fn find_strip(&mut self, ui: &mut egui::Ui, t: &theme::Theme) -> f32 {
+        let Some(needle) = self.last_needle.clone() else {
+            return 0.0;
+        };
+        let before = ui.available_width();
+        let total = self.find_in_doc(&needle).len();
+        let pos = self.find_pos.min(total.saturating_sub(1));
+        if self.find_announce {
+            self.find_announce = false;
+            self.flash(format!(
+                "{} · F3 next · Shift+F3 back",
+                find_label(pos, total, None)
+            ));
+        }
+        let mut step: Option<bool> = None;
+        let mut clear = false;
+        // A faint rounded bed, so the strip reads as one control among the bar's plain status text
+        // rather than three loose fragments of it.
+        let bed = egui::Frame::new()
+            .fill(t.accent.gamma_multiply(0.10))
+            .corner_radius(CornerRadius::same(99))
+            .inner_margin(Margin::symmetric(6, 1));
+        let bed_resp = bed.show(ui, |ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        if theme::chip_small(ui, "‹", t.accent, t)
+            .on_hover_text("the occurrence before this one (Shift+F3)")
+            .clicked()
+        {
+            step = Some(true);
+        }
+        ui.label(
+            RichText::new(find_label(pos, total, None))
+                .family(theme::fam(theme::F_MONO))
+                .size(10.5)
+                .color(if total == 0 { t.warn } else { t.accent }),
+        )
+        .on_hover_text(if total == 0 {
+            format!("“{needle}” is not in this note")
+        } else {
+            format!("occurrence {} of {total} of “{needle}” · F3 next, Shift+F3 back", pos + 1)
+        });
+        if theme::chip_small(ui, "›", t.accent, t)
+            .on_hover_text("the next occurrence (F3)")
+            .clicked()
+        {
+            step = Some(false);
+        }
+        // The word being counted, sized to the word rather than to the room left over: a 170 pt box
+        // around four characters left a bed of empty accent across the bar.
+        let font = FontId::new(10.5, theme::fam(theme::F_MONO));
+        let want = ui.fonts_mut(|f| {
+            f.layout_no_wrap(format!("“{needle}”"), font, t.dim)
+                .size()
+                .x
+        });
+        ui.add_sized(
+            [want.clamp(14.0, 150.0), 16.0],
+            egui::Label::new(
+                RichText::new(format!("“{needle}”"))
+                    .family(theme::fam(theme::F_MONO))
+                    .size(10.5)
+                    .color(t.dim),
+            )
+            .truncate(),
+        );
+        if theme::chip_small(ui, "×", t.faint, t)
+            .on_hover_text("stop searching — clears the strip")
+            .clicked()
+        {
+            clear = true;
+        }
+        });
+        let _ = bed_resp;
+        let used = before - ui.available_width();
+        if clear {
+            self.last_needle = None;
+            self.find_pos = 0;
+            self.save_state_soon();
+        } else if let Some(back) = step {
+            self.find_next_in_page(back);
+            self.save_state_soon();
+        }
+        used
+    }
+
     /// F3 / Shift+F3: step through the occurrences of the last search inside the open note.
     fn find_keys(&mut self, ctx: &egui::Context) {
         if self.palette.is_some() || self.confirm.is_some() || self.annotate.is_some() {
             return;
         }
-        let (f3, shift_f3) = ctx.input_mut(|i| {
-            (
-                i.consume_key(egui::Modifiers::NONE, egui::Key::F3),
-                i.consume_key(egui::Modifiers::SHIFT, egui::Key::F3),
-            )
+        // One consume, and the direction read from the modifiers: `consume_key(Modifiers::NONE, F3)`
+        // matches Shift+F3 as well — egui's logical match only rejects a shift the pattern *asks* for —
+        // so asking for both in turn made Shift+F3 step forwards too, and the plain check got there
+        // first.
+        let (f3, shift) = ctx.input_mut(|i| {
+            let hit = i.consume_key(egui::Modifiers::NONE, egui::Key::F3);
+            (hit, i.modifiers.shift)
         });
         if f3 {
-            self.find_next_in_page(false);
-        } else if shift_f3 {
-            self.find_next_in_page(true);
+            self.find_next_in_page(shift);
         }
     }
 
@@ -7585,6 +9357,8 @@ impl NoteCraft {
         let (block, range) = occ[pos];
         self.land_on_block_range(block, range);
         self.flash(find_label(pos, len, None));
+        // where the walk got to survives a restart, like the search itself
+        self.save_state_soon();
     }
 
     /// The "restore from .trash" dialog. Deletes are never hard deletes, so this is the way back
@@ -7625,8 +9399,8 @@ impl NoteCraft {
                 );
                 ui.label(
                     RichText::new(format!(
-                        "Pages go back into “{nb} / {sec}” — the section you have open. \
-                         Notebook and section folders go back to the top of the vault."
+                        "Pages go back into “{nb} / {sec}” — the chapter you have open. \
+                         Notebook and chapter folders go back to the top of the vault."
                     ))
                     .family(theme::fam(theme::F_REG))
                     .size(12.0)
@@ -7710,10 +9484,321 @@ impl NoteCraft {
         }
     }
 
+    // ------------------------------------------------------------ the formatter and the summariser
+
+    /// The AI menu in the ribbon, beside Export and Display.
+    fn ai_menu(&mut self, ui: &mut egui::Ui, t: &Theme) {
+        let busy = self.ai_job.is_some();
+        let model = self.ai_cfg.model.clone();
+        ui.add_enabled_ui(!busy, |ui| {
+            if ui.button("Format this page   Ctrl+Shift+F").clicked() {
+                let ctx = ui.ctx().clone();
+                self.tidy_now(&ctx);
+                ui.close();
+            }
+            if ui.button("Summarise…").clicked() {
+                self.open_ai_dialog();
+                ui.close();
+            }
+        });
+        ui.separator();
+        let line = if busy {
+            "working — the page stays editable".to_string()
+        } else {
+            format!("model  {model}")
+        };
+        ui.label(
+            RichText::new(line)
+                .family(theme::fam(theme::F_MONO))
+                .size(10.5)
+                .color(t.faint),
+        );
+    }
+
+    fn open_ai_dialog(&mut self) {
+        self.ai_dialog = Some(AiDialog {
+            model: self.ai_cfg.model.clone(),
+            words: self.ai_words.to_string(),
+        });
+    }
+
+    /// Both jobs need a page with words on it, and only one at a time: a second call would ask
+    /// about words the first one is already rearranging.
+    fn ai_ready(&mut self) -> bool {
+        if self.page.is_none() {
+            self.flash("open a page first");
+            return false;
+        }
+        if self.ai_job.is_some() {
+            self.flash("the model is already working on this page");
+            return false;
+        }
+        if ai::page_text(&self.doc).split_whitespace().count() < 20 {
+            self.flash("not enough words on this page to work with");
+            return false;
+        }
+        true
+    }
+
+    /// Ctrl+Shift+F, or *Format this page*: ask the model where the paragraph breaks and the
+    /// headings are, and rebuild the document from its answer.
+    fn tidy_now(&mut self, ctx: &egui::Context) {
+        if !self.ai_ready() {
+            return;
+        }
+        let page = self.doc.clone();
+        let fingerprint = doc::to_markdown(&page);
+        let cfg = self.ai_cfg.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let repaint = ctx.clone();
+        std::thread::spawn(move || {
+            let mut send = |m: &str| {
+                let _ = tx.send(AiMsg::Progress(m.to_string()));
+                repaint.request_repaint();
+            };
+            let out = ai::tidy_page(&page, &cfg, &mut send);
+            let _ = tx.send(AiMsg::Done(out.map(AiDone::Doc)));
+            repaint.request_repaint();
+        });
+        self.ai_job = Some(AiJob {
+            rx,
+            what: AiWhat::Tidy { fingerprint },
+            started: Instant::now(),
+        });
+        self.status = format!("formatting with {}…", self.ai_cfg.model);
+        self.status_at = None;
+        self.ctx_repaint(ctx);
+    }
+
+    /// *Summarise…*: the page's words at about `want` words, on a page of its own.
+    fn summarise_now(&mut self, ctx: &egui::Context, want: u32) {
+        if !self.ai_ready() {
+            return;
+        }
+        let text = ai::page_text(&self.doc);
+        let cfg = self.ai_cfg.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let repaint = ctx.clone();
+        std::thread::spawn(move || {
+            let out = ai::summarise(&text, want, &cfg).map(|text| {
+                let words = text.split_whitespace().count();
+                AiDone::Summary { text, words }
+            });
+            let _ = tx.send(AiMsg::Done(out));
+            repaint.request_repaint();
+        });
+        self.ai_job = Some(AiJob {
+            rx,
+            what: AiWhat::Summarise { asked: want },
+            started: Instant::now(),
+        });
+        self.status = format!("summarising with {}…", self.ai_cfg.model);
+        self.status_at = None;
+        self.ctx_repaint(ctx);
+    }
+
+    fn ctx_repaint(&self, ctx: &egui::Context) {
+        ctx.request_repaint();
+    }
+
+    /// An answer has arrived: apply it, or say why not.
+    fn ai_land(&mut self, what: &AiWhat, result: Result<AiDone, String>, took: Duration) {
+        let done = match result {
+            Ok(d) => d,
+            Err(e) => {
+                self.flash(e);
+                return;
+            }
+        };
+        let secs = took.as_secs_f32();
+        match (what, done) {
+            (AiWhat::Tidy { fingerprint }, AiDone::Doc(new)) => {
+                // The model was asked about the words that were on the page when it started. If
+                // they have been edited since, its answer describes a page that no longer exists.
+                if doc::to_markdown(&self.doc) != *fingerprint {
+                    self.flash("the note changed while it was being formatted — nothing applied");
+                    return;
+                }
+                let new = {
+                    let mut n = new;
+                    n.ensure_block();
+                    n
+                };
+                let heads = new
+                    .blocks
+                    .iter()
+                    .filter(|b| matches!(b.kind, doc::Kind::Heading(_)))
+                    .count();
+                let paras = new.blocks.iter().filter(|b| b.kind == doc::Kind::Para).count();
+                self.snapshot();
+                self.doc = new;
+                self.after_undo();
+                self.flash(format!(
+                    "formatted in {secs:.0}s: {heads} headings, {paras} paragraphs — Ctrl+Z to undo"
+                ));
+            }
+            (AiWhat::Summarise { asked }, AiDone::Summary { text, words }) => {
+                self.summary_page(&text, words, *asked)
+            }
+            _ => self.flash("the model answered something unexpected"),
+        }
+    }
+
+    /// A summary goes on its own page beside the note it came from, and opens.
+    fn summary_page(&mut self, text: &str, words: usize, asked: u32) {
+        let (Some(nb), Some(sec)) = (self.nb.clone(), self.sec.clone()) else {
+            self.flash("no notebook is open for the summary page");
+            return;
+        };
+        let blocks = ai::summary_blocks(text);
+        if blocks.is_empty() {
+            self.flash("the model returned an empty summary");
+            return;
+        }
+        let base = self.title.trim();
+        let title = if base.is_empty() {
+            "Summary".to_string()
+        } else {
+            format!("{base} — summary")
+        };
+        let doc = doc::Doc { blocks };
+        let body = doc::to_markdown(&doc);
+        // Half a step after the page it belongs to, so it sorts directly under it rather than at
+        // the bottom of a long chapter.
+        let order = self.order + 0.5;
+        match Ops::create_page(&self.vault.root, &nb, &sec, &title) {
+            Ok(path) => {
+                if let Err(e) = vault::write_page(&path, &title, None, order, &body) {
+                    self.flash(format!("could not write the summary page: {e}"));
+                    return;
+                }
+                if let Err(e) = doc::save(&path, &doc) {
+                    self.flash(format!("could not write the summary page: {e}"));
+                    return;
+                }
+                self.vault.reload();
+                self.open_page(&path, false);
+                self.flash(format!(
+                    "summary page: {words} words (asked for about {asked})"
+                ));
+            }
+            Err(e) => self.flash(format!("could not create the summary page: {e}")),
+        }
+    }
+
+    /// The summariser's window: how long a summary, and which model.
+    fn ai_window(&mut self, ctx: &egui::Context) {
+        if self.ai_dialog.is_none() {
+            return;
+        }
+        let t = self.theme;
+        let page_words = ai::page_text(&self.doc).split_whitespace().count();
+        let mut close = false;
+        let mut run = false;
+        let mut model = String::new();
+        let mut words = ai::DEFAULT_WORDS;
+        if let Some(dlg) = self.ai_dialog.as_mut() {
+            egui::Window::new("summarise")
+                .title_bar(false)
+                .resizable(false)
+                .collapsible(false)
+                .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+                .min_width(440.0)
+                .max_width(440.0)
+                .frame(
+                    egui::Frame::new()
+                        .fill(t.panel2)
+                        .stroke(Stroke::new(1.0_f32, t.border))
+                        .corner_radius(CornerRadius::same(14))
+                        .inner_margin(Margin::same(14)),
+                )
+                .show(ctx, |ui| {
+                    ui.label(
+                        RichText::new("Summarise this page")
+                            .family(theme::fam(theme::F_SEMI))
+                            .size(15.0)
+                            .color(t.heading),
+                    );
+                    ui.label(
+                        RichText::new(format!("the page has {page_words} words"))
+                            .family(theme::fam(theme::F_REG))
+                            .size(11.5)
+                            .color(t.faint),
+                    );
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("about")
+                                .family(theme::fam(theme::F_REG))
+                                .size(12.5)
+                                .color(t.dim),
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut dlg.words)
+                                .desired_width(64.0)
+                                .char_limit(5),
+                        );
+                        ui.label(
+                            RichText::new("words")
+                                .family(theme::fam(theme::F_REG))
+                                .size(12.5)
+                                .color(t.dim),
+                        );
+                    });
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("model")
+                                .family(theme::fam(theme::F_REG))
+                                .size(12.5)
+                                .color(t.dim),
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut dlg.model)
+                                .desired_width(300.0)
+                                .font(egui::TextStyle::Monospace),
+                        );
+                    });
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if theme::toolbar_button(ui, "Summarise", true, &t).clicked() {
+                            run = true;
+                        }
+                        if theme::toolbar_button(ui, "Cancel", false, &t).clicked() {
+                            close = true;
+                        }
+                    });
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        run = true;
+                    }
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        close = true;
+                    }
+                });
+            model = dlg.model.trim().to_string();
+            words = dlg.words.trim().parse::<u32>().unwrap_or(ai::DEFAULT_WORDS);
+        }
+        if run {
+            // 30 words is a sentence; 1500 is longer than most articles need
+            let words = words.clamp(30, 1500);
+            if !model.is_empty() {
+                self.ai_cfg.model = model;
+            }
+            self.ai_words = words;
+            self.save_state_soon();
+            self.ai_dialog = None;
+            self.summarise_now(ctx, words);
+            return;
+        }
+        if close {
+            self.ai_dialog = None;
+        }
+    }
+
     fn dialogs(&mut self, ctx: &egui::Context) {
         let t = self.theme;
-        // rename page
-        if let Some(path) = self.rename_for.clone() {
+        // rename: a page's title, a notebook, or a section
+        if let Some(target) = self.rename_for.clone() {
             let mut close = false;
             let mut commit = false;
             egui::Window::new("rename")
@@ -7731,8 +9816,13 @@ impl NoteCraft {
                         .inner_margin(Margin::same(14)),
                 )
                 .show(ctx, |ui| {
+                    let heading = match &target {
+                        RenameTarget::Page(_) => "Rename page",
+                        RenameTarget::Notebook(_) => "Rename notebook",
+                        RenameTarget::Section(..) => "Rename chapter",
+                    };
                     ui.label(
-                        RichText::new("Rename page")
+                        RichText::new(heading)
                             .family(theme::fam(theme::F_SEMI))
                             .size(15.0)
                             .color(t.heading),
@@ -7776,7 +9866,7 @@ impl NoteCraft {
                         close = true;
                     }
                 });
-            if commit {
+            if commit && let RenameTarget::Page(path) = &target {
                 // Anything still in the buffer belongs in the file *before* it is renamed: the
                 // rename rewrites the page from what is on disk, and the page-level save that
                 // `open_page` runs on the way to the new name would then write the old path again —
@@ -7806,6 +9896,64 @@ impl NoteCraft {
                     Err(e) => self.flash(format!("rename failed: {e}")),
                 }
             }
+            // A notebook or a section is a folder: one `fs::rename` carries its pages, their pictures
+            // and their documents. The open page has to be re-pointed at the new path, or the next
+            // save writes the old one back into being.
+            if commit {
+                let (res, old_dir, what) = match &target {
+                    RenameTarget::Notebook(old) => (
+                        Ops::rename_notebook(&self.vault.root, old, &self.rename_buf),
+                        self.vault.root.join(vault::sanitize(old)),
+                        "notebook renamed",
+                    ),
+                    RenameTarget::Section(nb, sec) => (
+                        Ops::rename_section(&self.vault.root, nb, sec, &self.rename_buf),
+                        self.vault
+                            .root
+                            .join(vault::sanitize(nb))
+                            .join(vault::sanitize(sec)),
+                        "chapter renamed",
+                    ),
+                    RenameTarget::Page(_) => (
+                        Ok(PathBuf::new()),
+                        PathBuf::new(),
+                        "renamed",
+                    ),
+                };
+                if !old_dir.as_os_str().is_empty() {
+                    match res {
+                        Ok(new_dir) => {
+                            let page = self.page.clone();
+                            self.vault.reload();
+                            if let Some(p) = page {
+                                if let Ok(rel) = p.strip_prefix(&old_dir) {
+                                    let moved = new_dir.join(rel);
+                                    if moved.exists() {
+                                        self.page = Some(moved.clone());
+                                        self.open_page(&moved, false);
+                                    }
+                                }
+                            }
+                            // the view follows the folder it was looking at
+                            if let (RenameTarget::Notebook(old), Some(cur)) = (&target, self.nb.clone()) {
+                                if cur == *old {
+                                    self.nb = Some(self.rename_buf.trim().to_string());
+                                }
+                            }
+                            if let (RenameTarget::Section(nb, sec), Some(cur)) =
+                                (&target, self.sec.clone())
+                            {
+                                if cur == *sec && self.nb.as_deref() == Some(nb.as_str()) {
+                                    self.sec = Some(self.rename_buf.trim().to_string());
+                                }
+                            }
+                            self.flash(what);
+                            close = true;
+                        }
+                        Err(e) => self.flash(format!("rename failed: {e}")),
+                    }
+                }
+            }
             if close {
                 self.rename_for = None;
             }
@@ -7820,12 +9968,12 @@ impl NoteCraft {
                 ),
                 Confirm::DeleteNotebook(name) => (
                     format!("Delete the notebook “{name}”?"),
-                    "Its sections, pages, pictures and documents move into <vault>/.trash together, \
+                    "Its chapters, pages, pictures and documents move into <vault>/.trash together, \
                      so the whole notebook can be recovered."
                         .to_string(),
                 ),
                 Confirm::DeleteSection(nb, sec) => (
-                    format!("Delete the section “{sec}”?"),
+                    format!("Delete the chapter “{sec}”?"),
                     format!("Every page in “{nb} / {sec}” moves to <vault>/.trash — never hard-deleted."),
                 ),
             };
@@ -7894,10 +10042,6 @@ impl eframe::App for NoteCraft {
         // A theme change has to reach egui's own widgets, not only the app's painted ones.
         self.sync_theme(ctx);
         self.tick(ctx);
-        // A snip asked for by a button or a shortcut starts here, where the context is available.
-        if std::mem::take(&mut self.snip_request) {
-            self.begin_snip(ctx);
-        }
         // The crop overlay owns the window while a picture is being cropped: no key or click may reach
         // the note behind it (Enter applies, Esc cancels, and a Ctrl+N must not create a page behind a
         // modal), and the overlay draws the whole window itself.
@@ -7950,13 +10094,15 @@ impl eframe::App for NoteCraft {
         if self.pages_open {
             self.page_panel(ctx);
         } else {
-            self.panel_handle(ctx, "pages_handle", false, "open the page list (Ctrl+2)");
+            self.panel_handle(ctx, "pages_handle", false, "open the chapter's pages (Ctrl+2)");
         }
         self.find_keys(ctx);
         self.central(ctx);
         self.due_picker(ctx);
         self.dialogs(ctx);
+        self.ai_window(ctx);
         self.trash_dialog(ctx);
+        self.glyph_picker(ctx);
         self.palette(ctx);
     }
 
@@ -8321,12 +10467,12 @@ fn resize_width_from(pointer_x: f32, grab: f32, anchor: f32, box_w: f32, grow: f
 /// otherwise invisible (the compositor can swallow a drag before any app code
 /// runs), so every hover/drop/attach step is recorded for diagnosis — including
 /// the outgoing half of a drag, which lives in `dragout`.
-/// Write dropped bytes to a temporary file so the existing path-based attachment code can take it.
+/// Turn the virtual files a Windows drop delivered into real files on disk, in a temp directory.
 ///
 /// The name comes from the drag source and may have no extension at all (browsers often send none),
-/// so the content is sniffed and an extension added: `attach::snippet_for_file` decides image-versus
-/// file from the extension, and a PNG named `image` would otherwise be attached as an opaque blob.
-#[cfg(any(windows, test))]
+/// so the content is sniffed and an extension added: `attach::snippet_for_file` decides
+/// image-versus-file from the extension, and a PNG named `image` would otherwise be attached as an
+/// opaque blob.
 #[cfg(any(windows, test))]
 pub(crate) fn blob_files(blobs: &[crate::dropped::Blob]) -> Vec<std::path::PathBuf> {
     let dir = std::env::temp_dir().join("notecraft-drop");
@@ -8419,6 +10565,7 @@ fn space_after(kind: doc::Kind) -> f32 {
         doc::Kind::Heading(1) => 10.0,
         doc::Kind::Heading(_) => 8.0,
         doc::Kind::Rule => 4.0,
+        doc::Kind::Table => 10.0,
         doc::Kind::Code => 0.5,
         _ => 2.5,
     }
@@ -8561,6 +10708,59 @@ fn step_row<T: Copy + PartialEq>(
 /// and `size` sit one above the other).
 const ROW_LABEL_W: f32 = 64.0;
 
+/// Whether a block holds words that can be fused with a neighbour's: the kinds Delete and Backspace
+/// join. A picture, a rule and a table are blocks in their own right — a join over one of them would
+/// drop the picture, the rule or the grid rather than merge two lines of text.
+fn joins_words(kind: doc::Kind) -> bool {
+    matches!(
+        kind,
+        doc::Kind::Para
+            | doc::Kind::Heading(_)
+            | doc::Kind::Bullet
+            | doc::Kind::Todo
+            | doc::Kind::Quote
+            | doc::Kind::Code
+    )
+}
+
+/// Which way a plain arrow key takes the caret when it runs out of room in its own line.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CaretStep {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Where the caret sits in a line **as it was drawn**: whether it is on the first row and on the last
+/// row of the line (a wrapped paragraph has several), and its x inside the galley — the column Up and
+/// Down keep when they carry the caret into the line above or below.
+fn caret_row(galley: &egui::Galley, at: usize) -> (bool, bool, f32) {
+    let caret = galley.pos_from_cursor(egui::text::CCursor::new(at));
+    let cy = caret.center().y;
+    let found = galley.rows.iter().position(|row| {
+        let rect = row.rect();
+        cy >= rect.top() - 0.5 && cy <= rect.bottom() + 0.5
+    });
+    match found {
+        Some(k) => (k == 0, k + 1 == galley.rows.len(), caret.left()),
+        // nothing laid out (an empty line): one row, and it is both the first and the last
+        None => (true, true, caret.left()),
+    }
+}
+
+/// The character a caret coming in at column `x` lands on: the first row when arriving from above,
+/// the last when arriving from below.
+fn caret_at_column(galley: &egui::Galley, x: f32, last_row: bool) -> usize {
+    let row = if last_row {
+        galley.rows.last()
+    } else {
+        galley.rows.first()
+    };
+    let y = row.map(|r| r.rect().center().y).unwrap_or(0.0);
+    galley.cursor_from_pos(egui::vec2(x, y)).index
+}
+
 /// The quiet mono label that opens a row of controls in the editor's menu, padded to `ROW_LABEL_W`.
 fn row_label(ui: &mut egui::Ui, text: &str, t: &Theme) {
     let font = egui::FontId::new(11.0, theme::fam(theme::F_MONO));
@@ -8660,10 +10860,10 @@ fn menu_action(ui: &mut egui::Ui, label: &str, hint: &str, t: &Theme) -> bool {
 }
 
 /// How a Copy/Cut is described in the status line: "3 lines", "the marked words", "the line".
-fn clip_summary(lines: usize, range: Option<(usize, usize)>) -> String {
-    if lines > 1 {
-        format!("{lines} lines")
-    } else if range.is_some() {
+fn clip_summary(targets: &[(usize, Option<(usize, usize)>)]) -> String {
+    if targets.len() > 1 {
+        format!("{} lines", targets.len())
+    } else if targets.first().is_some_and(|(_, r)| r.is_some()) {
         "the marked words".to_string()
     } else {
         "the line".to_string()
@@ -8989,7 +11189,9 @@ fn ribbon_marks(ui: &mut egui::Ui, current: &[bool; 5], t: &Theme) -> Option<u8>
         ui.spacing_mut().item_spacing.x = 4.0;
         for (i, on) in current.iter().enumerate() {
             let colour = t.marks.get(i).copied().unwrap_or(t.faint);
-            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::click());
+            // 22, not 20: the picture buttons either side of this group grew with the icons, and a
+            // swatch that stayed at 20 read as a smaller class of control than its neighbours.
+            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::click());
             let swatch = egui::Rect::from_center_size(rect.center(), Vec2::splat(14.0));
             let name = theme::MARK_NAMES.get(i).copied().unwrap_or("highlight");
             if resp.hovered() {
@@ -9056,6 +11258,142 @@ fn due_rows(
     out
 }
 
+/// One line as the editor drew it this frame: the rect a pointer press lands in, the galley that
+/// turns an x into a character index, and the selection the line is already showing.
+struct LineHit {
+    block: usize,
+    rect: egui::Rect,
+    galley: std::sync::Arc<egui::Galley>,
+    pos: egui::Pos2,
+    live: Option<(usize, usize)>,
+    focused: bool,
+}
+
+/// Where a dropped file would land.
+///
+/// `after` is the index the new blocks go after, when the pointer was in a gap. `split` is set when it
+/// was inside a paragraph: the block to split, and the character index to split it at, so the file
+/// lands between the two halves of the sentence it was dropped into (the rule Word follows) without
+/// the document needing inline pictures.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct DropPlace {
+    after: usize,
+    split: Option<(usize, usize)>,
+}
+
+/// Read a pointer position against the blocks as they were drawn, and say where a file would go.
+///
+/// `rects` are the blocks in document order with the rect each took, `lines` the text blocks'
+/// galleys (which turn an x into a character index), `len` the character length of a block.
+/// How far to scroll a note when the pointer is held at its top or bottom edge: positive to reveal
+/// what is below, negative for what is above, zero anywhere else. Both the marking drag and a file
+/// held over the note use it, so the two feel the same.
+fn edge_scroll_step(view: egui::Rect, p: egui::Pos2) -> f32 {
+    const BAND: f32 = 34.0; // how far inside the edge counts as "at the edge"
+    const SPEED: f32 = 20.0; // points a frame at the very edge — fast enough to cross a long note,
+                              // slow enough to stop on the line you want
+    let below = p.y - (view.bottom() - BAND);
+    let above = (view.top() + BAND) - p.y;
+    if below > 0.0 {
+        (below / BAND).min(1.0) * SPEED
+    } else if above > 0.0 {
+        -(above / BAND).min(1.0) * SPEED
+    } else {
+        0.0
+    }
+}
+
+/// The row a block of its own takes: from where its drawing started (`line_top`) to where the next
+/// block will begin. `ui.min_rect()` cannot answer this — it is the note's whole extent so far, so a
+/// picture's "rect" reached back over the page title and every hit test near it was measured against
+/// the wrong span.
+fn block_row(ui: &egui::Ui, line_top: f32) -> egui::Rect {
+    let col = ui.max_rect();
+    egui::Rect::from_min_max(
+        egui::pos2(col.left(), line_top),
+        egui::pos2(col.right(), ui.cursor().top().max(line_top + 1.0)),
+    )
+}
+
+fn drop_place_in(
+    rects: &[(usize, egui::Rect)],
+    lines: &[LineHit],
+    pos: egui::Pos2,
+    len: impl Fn(usize) -> usize,
+    split_ok: bool,
+) -> Option<DropPlace> {
+    if rects.is_empty() {
+        return None;
+    }
+    // inside a paragraph: part it where the pointer is, unless that is at one of its ends (then it is
+    // the gap above or below that the next arm gives). Only when the incoming thing may go between
+    // words: a block being moved (`split_ok == false`) falls through to the boundary rule below, so
+    // dragging a picture never cuts a paragraph open by a couple of pixels of pointer travel.
+    if split_ok {
+        for hit in lines {
+            if hit.rect.contains(pos) {
+                let local = pos - hit.pos;
+                let idx = hit.galley.cursor_from_pos(local).index;
+                let total = len(hit.block);
+                if idx > 0 && idx < total {
+                    return Some(DropPlace {
+                        after: hit.block,
+                        split: Some((hit.block, idx)),
+                    });
+                }
+            }
+        }
+    }
+    // the block under the pointer: its top half means "before", its bottom half "after"
+    for (i, r) in rects {
+        if pos.y >= r.top() && pos.y <= r.bottom() {
+            return Some(DropPlace {
+                after: if pos.y > r.center().y { i + 1 } else { *i },
+                split: None,
+            });
+        }
+    }
+    // above the first block, or below the last
+    let first_below = rects.iter().find(|(_, r)| r.top() > pos.y).map(|(i, _)| *i);
+    Some(DropPlace {
+        after: first_below.unwrap_or_else(|| rects.last().map(|(i, _)| *i + 1).unwrap_or(0)),
+        split: None,
+    })
+}
+
+/// The rects a character range covers, one per drawn row — how a marking across lines is painted.
+/// The rows are the galley's, so the marking follows a wrapped line instead of pretending the note
+/// is one line per block.
+fn sel_rects(galley: &egui::Galley, origin: egui::Pos2, range: (usize, usize)) -> Vec<egui::Rect> {
+    let mut out = Vec::new();
+    let mut idx = 0usize;
+    for row in &galley.rows {
+        let mut span: Option<(f32, f32)> = None;
+        for g in &row.glyphs {
+            if idx >= range.0 && idx < range.1 {
+                let x0 = origin.x + row.rect().left() + g.pos.x;
+                let x1 = x0 + g.advance_width.max(1.0);
+                span = Some(match span {
+                    Some((a, _)) => (a, x1),
+                    None => (x0, x1),
+                });
+            }
+            idx += 1;
+        }
+        if let Some((x0, x1)) = span {
+            let r = row.rect();
+            out.push(egui::Rect::from_min_max(
+                egui::pos2(x0, origin.y + r.top()),
+                egui::pos2(x1, origin.y + r.bottom()),
+            ));
+        }
+        if row.ends_with_newline {
+            idx += 1;
+        }
+    }
+    out
+}
+
 /// What the editor's menu shows as already on, for the lines it will act on.
 struct MenuState {
     bold: bool,
@@ -9072,31 +11410,39 @@ struct MenuState {
     marks: [bool; 5],
 }
 
-fn menu_state(doc: &doc::Doc, idx: &[usize], range: Option<(usize, usize)>) -> MenuState {
-    let idx: Vec<usize> = idx.iter().copied().filter(|i| *i < doc.blocks.len()).collect();
-    let all = |f: &dyn Fn(&doc::Block) -> bool| !idx.is_empty() && idx.iter().all(|i| f(&doc.blocks[*i]));
-    let attr = |range: Option<(usize, usize)>, f: &dyn Fn(&doc::Attrs) -> bool| {
-        all(&|b| doc::attr_all(&b.runs, range, f))
+fn menu_state(doc: &doc::Doc, targets: &[(usize, Option<(usize, usize)>)]) -> MenuState {
+    let idx: Vec<(usize, Option<(usize, usize)>)> = targets
+        .iter()
+        .copied()
+        .filter(|(i, _)| *i < doc.blocks.len())
+        .collect();
+    let attr = |f: &dyn Fn(&doc::Attrs) -> bool| {
+        !idx.is_empty()
+            && idx
+                .iter()
+                .all(|(i, r)| doc::attr_all(&doc.blocks[*i].runs, *r, f))
     };
     let kind = idx
         .first()
-        .map(|i| doc.blocks[*i].kind)
-        .filter(|k| idx.iter().all(|i| doc.blocks[*i].kind == *k));
+        .map(|(i, _)| doc.blocks[*i].kind)
+        .filter(|k| idx.iter().all(|(i, _)| doc.blocks[*i].kind == *k));
     let mut marks = [false; 5];
     for (i, m) in marks.iter_mut().enumerate() {
-        *m = attr(range, &move |a: &doc::Attrs| a.mark == (i as u8 + 1));
+        *m = attr(&move |a: &doc::Attrs| a.mark == (i as u8 + 1));
     }
     let mut tags: Vec<String> = Vec::new();
-    if let Some(first) = idx.first() {
+    if let Some((first, _)) = idx.first() {
         for r in &doc.blocks[*first].runs {
             if !r.a.tag {
                 continue;
             }
             let name = r.text.trim_start_matches('#').to_string();
-            if idx
-                .iter()
-                .all(|i| doc.blocks[*i].runs.iter().any(|q| q.a.tag && q.text.trim_start_matches('#') == name))
-                && !tags.contains(&name)
+            if idx.iter().all(|(i, _)| {
+                doc.blocks[*i]
+                    .runs
+                    .iter()
+                    .any(|q| q.a.tag && q.text.trim_start_matches('#') == name)
+            }) && !tags.contains(&name)
             {
                 tags.push(name);
             }
@@ -9106,14 +11452,14 @@ fn menu_state(doc: &doc::Doc, idx: &[usize], range: Option<(usize, usize)>) -> M
     // large word that had plain text before it
     let size = idx
         .first()
-        .map(|i| {
+        .map(|(i, r)| {
             let b = &doc.blocks[*i];
-            let start = range.map(|(s, _)| s).unwrap_or(0);
+            let start = r.map(|(s, _)| s).unwrap_or(0);
             let mut at = 0usize;
-            for r in &b.runs {
-                let n = r.text.chars().count();
+            for run in &b.runs {
+                let n = run.text.chars().count();
                 if at + n > start {
-                    return r.a.size;
+                    return run.a.size;
                 }
                 at += n;
             }
@@ -9121,13 +11467,13 @@ fn menu_state(doc: &doc::Doc, idx: &[usize], range: Option<(usize, usize)>) -> M
         })
         .filter(|s| {
             idx.iter()
-                .all(|i| doc::attr_all(&doc.blocks[*i].runs, range, |a| a.size == *s))
+                .all(|(i, r)| doc::attr_all(&doc.blocks[*i].runs, *r, |a| a.size == *s))
         });
     MenuState {
-        bold: attr(range, &|a| a.bold),
-        italic: attr(range, &|a| a.italic),
-        code: attr(range, &|a| a.code),
-        strike: attr(range, &|a| a.strike),
+        bold: attr(&|a| a.bold),
+        italic: attr(&|a| a.italic),
+        code: attr(&|a| a.code),
+        strike: attr(&|a| a.strike),
         kind,
         size,
         tags,
@@ -9209,26 +11555,6 @@ fn status_seg(
     true
 }
 
-/// A hairline between two groups of top-bar controls. Ten buttons of equal weight, mixing modes,
-/// views, actions and settings, read as one undifferentiated strip; the rule says where one job ends.
-/// It is painted rather than `ui.separator()` because egui's own rule spans the whole interact height
-/// and takes its colour from `Visuals`, which on Paper is very nearly the panel itself.
-
-/// The rule between two ribbon groups.
-///
-/// The gaps either side are `BAR_GROUP_GAP` in every theme, counted from the row's own item spacing,
-/// so the band keeps one rhythm instead of a rule's 8 + a group's 6 + a button's 2.
-fn group_rule(ui: &mut egui::Ui, t: &Theme) {
-    let side = (theme::BAR_GROUP_GAP - theme::BAR_ITEM_GAP).max(0.0);
-    ui.add_space(side);
-    let (r, _) = ui.allocate_exact_size(
-        Vec2::new(1.0, theme::BAR_CONTENT_H - 14.0),
-        Sense::hover(),
-    );
-    ui.painter().rect_filled(r, CornerRadius::same(1), t.border);
-    ui.add_space(side);
-}
-
 /// The search field WordCraft puts in its title row: a box with a placeholder, and the shortcut
 /// written inside it. It is deliberately not a text field — this app searches through the command
 /// palette (pages, tags, sections and commands in one list), so the box is the door to that and
@@ -9281,7 +11607,7 @@ fn search_box(ui: &mut egui::Ui, t: &Theme) -> egui::Response {
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    resp.on_hover_text("search pages, tags, sections and commands (Ctrl+K)")
+    resp.on_hover_text("search pages, tags, chapters and commands (Ctrl+K)")
 }
 
 fn page_meta_line(p: &Page) -> String {
@@ -9348,21 +11674,32 @@ fn meta_galley(
     g
 }
 
-/// Lay text out on a single line, shortening it with an ellipsis when it does not fit,
-/// so a long title cannot wrap out of its row.
-fn one_line(ui: &egui::Ui, text: &str, font: egui::FontId, color: Color32, max_w: f32) -> std::sync::Arc<egui::Galley> {
-    let mut s = text.to_owned();
-    let mut g = ui.fonts_mut(|f| f.layout_no_wrap(s.clone(), font.clone(), color));
-    if g.size().x > max_w && !s.is_empty() {
-        // drop a few characters at a time: relayouting per character is wasteful on
-        // a long page list, and a glyph or two of slack does not matter here
-        while !s.is_empty() && g.size().x > max_w {
-            let keep = s.chars().count().saturating_sub(4);
-            s = s.chars().take(keep).collect();
-            g = ui.fonts_mut(|f| f.layout_no_wrap(format!("{s}…"), font.clone(), color));
-        }
-    }
-    g
+/// A page title in the list: wrapped at word boundaries, as many lines as it takes.
+///
+/// The list clipped every title to one line at 13.5 pt: "Qwen notes" fitted and "Notes on the 4060 Ti
+/// and the llama.cpp build flags" did not, and the row said nothing about which end of it had gone
+/// missing. Capping the wrap at two lines only moved the ellipsis one line down, so there is no cap:
+/// the row is as tall as its title needs, and a page is never listed under a name it does not have.
+/// `break_anywhere` stays false so the break lands between words, not inside one.
+fn title_galley(
+    ui: &egui::Ui,
+    title: &str,
+    color: Color32,
+    max_w: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = max_w.max(24.0);
+    job.wrap.break_anywhere = false;
+    job.append(
+        title,
+        0.0,
+        egui::TextFormat {
+            font_id: FontId::new(15.5, theme::fam(theme::F_SEMI)),
+            color,
+            ..Default::default()
+        },
+    );
+    ui.fonts_mut(|f| f.layout_job(job))
 }
 
 fn page_row(
@@ -9375,48 +11712,64 @@ fn page_row(
     t: &Theme,
 ) -> egui::Response {
     let width = ui.available_width();
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 46.0), Sense::click());
-    let p = ui.painter();
-    if selected {
-        p.rect_filled(rect, CornerRadius::same(9), t.accent.gamma_multiply(0.15));
-        p.rect_filled(
-            egui::Rect::from_min_size(
-                rect.min + Vec2::new(0.0, 7.0),
-                Vec2::new(2.5, rect.height() - 14.0),
-            ),
-            CornerRadius::same(2),
-            t.accent,
-        );
-    } else if resp.hovered() {
-        p.rect_filled(rect, CornerRadius::same(9), t.card_hover);
-    }
-    let title_color = if selected { t.heading } else { t.text };
-    let title_g = one_line(
-        ui,
-        title,
-        FontId::new(13.5, theme::fam(theme::F_SEMI)),
-        title_color,
-        rect.width() - 20.0,
-    );
-    let meta_g = meta_galley(ui, meta, mark, rect.width() - 20.0, t);
-    let x = rect.min.x + 10.0;
-    ui.painter()
-        .galley(egui::Pos2::new(x, rect.min.y + 7.0), title_g, title_color);
-    ui.painter()
-        .galley(egui::Pos2::new(x, rect.min.y + 25.0), meta_g, t.faint);
-    if !badge.is_empty() {
-        let g = ui.fonts_mut(|f| {
+    // The badge is measured first, and it shares the *meta* line: it used to sit at the top right
+    // while the title ran the full width underneath it, which only escaped notice because one-line
+    // titles were cut short of the collision. Wrapping made that a collision on purpose.
+    let badge_g = if badge.is_empty() {
+        None
+    } else {
+        Some(ui.fonts_mut(|f| {
             f.layout_no_wrap(
                 badge.to_owned(),
                 FontId::new(10.0, theme::fam(theme::F_MONO)),
                 t.accent,
             )
-        });
-        ui.painter().galley(
-            egui::Pos2::new(rect.right() - g.size().x - 8.0, rect.min.y + 8.0),
-            g,
-            t.accent,
+        }))
+    };
+    // Twelve rather than eight: the list's scroll bar sits inside the column and the last glyph of
+    // "3 matches" was being shaved by it.
+    let badge_w = badge_g
+        .as_ref()
+        .map(|g| g.size().x + 12.0)
+        .unwrap_or(0.0);
+    let pad = 10.0;
+    let title_color = if selected { t.heading } else { t.text };
+    let title_g = title_galley(ui, title, title_color, width - pad * 2.0);
+    let meta_g = meta_galley(ui, meta, mark, width - pad * 2.0 - badge_w, t);
+    let title_h = title_g.size().y;
+    let meta_h = meta_g.size().y;
+    // The row is as tall as what it holds: one wrapped title is 48 pt, two are 67.
+    let (rect, resp) = ui.allocate_exact_size(
+        Vec2::new(width, 6.0 + title_h + 4.0 + meta_h + 6.0),
+        Sense::click(),
+    );
+    {
+        let p = ui.painter();
+        if selected {
+            p.rect_filled(rect, CornerRadius::same(9), t.accent.gamma_multiply(0.15));
+            p.rect_filled(
+                egui::Rect::from_min_size(
+                    rect.min + Vec2::new(0.0, 7.0),
+                    Vec2::new(2.5, rect.height() - 14.0),
+                ),
+                CornerRadius::same(2),
+                t.accent,
+            );
+        } else if resp.hovered() {
+            p.rect_filled(rect, CornerRadius::same(9), t.card_hover);
+        }
+    }
+    let x = rect.min.x + pad;
+    let title_top = rect.min.y + 6.0;
+    let meta_top = title_top + title_h + 4.0;
+    ui.painter().galley(egui::pos2(x, title_top), title_g, title_color);
+    ui.painter().galley(egui::pos2(x, meta_top), meta_g, t.faint);
+    if let Some(g) = badge_g {
+        let at = egui::pos2(
+            rect.right() - g.size().x - 12.0,
+            meta_top + (meta_h - g.size().y) * 0.5,
         );
+        ui.painter().galley(at, g, t.accent);
     }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -9444,12 +11797,17 @@ fn tag_color(t: &Theme, tag: &str) -> Color32 {
 }
 
 fn build_palette(vault: &Vault, query: &str) -> Vec<PalItem> {
-    const COMMANDS: [&str; 15] = [
-        "New page",
-        "New section",
+    // The three tiers, top down: a notebook holds chapters, a chapter holds pages. The palette
+    // lists its create commands in that order for the same reason the rail does.
+    const COMMANDS: [&str; 18] = [
         "New notebook",
+        "New chapter",
+        "New page",
         "Duplicate page",
         "Restore deleted…",
+        "Format page",
+        "Summarise page…",
+        "Symbols…",
         "Tasks view",
         "Tags view",
         "Pages view",
@@ -9488,7 +11846,7 @@ fn build_palette(vault: &Vault, query: &str) -> Vec<PalItem> {
             items.push(PalItem {
                 label: p.title.clone(),
                 hint: if h.count > 1 {
-                    format!("{kind} · {} matches", h.count)
+                    format!("{kind} · {} matches · F3 steps", h.count)
                 } else {
                     format!("{kind} · {} / {}", p.notebook, p.section)
                 },
@@ -9527,7 +11885,7 @@ fn build_palette(vault: &Vault, query: &str) -> Vec<PalItem> {
                 items.push(PalItem {
                     label,
                     hint: plural(sec.pages.len(), "page", "pages"),
-                    group: "Sections",
+                    group: "Chapters",
                     action: Action::OpenSection(nb.name.clone(), sec.name.clone()),
                 });
             }
@@ -9544,6 +11902,24 @@ fn build_palette(vault: &Vault, query: &str) -> Vec<PalItem> {
                 hint: String::new(),
                 group: "Commands",
                 action: Action::Command(c),
+            });
+        }
+    }
+    // Symbols, by name: `tick`, `arrow right`, `fire`, or a codepoint (`2192`). Three letters, or any
+    // query after a `:` (which also searches the whole catalogue for two-letter marks), so ordinary
+    // words do not fill the list with marks nobody asked for. Rows go last: a search for a page or a
+    // command must still find that first.
+    let (sym_query, explicit) = match q.strip_prefix(':') {
+        Some(rest) => (rest.trim().to_string(), true),
+        None => (q.clone(), false),
+    };
+    if explicit || sym_query.chars().count() >= 3 {
+        for g in glyphs::search(&sym_query, if explicit { 24 } else { 8 }) {
+            items.push(PalItem {
+                label: format!("{}  {}", g.ch, g.name),
+                hint: glyphs::group_label(g.group).to_lowercase(),
+                group: "Symbols",
+                action: Action::Glyph(g.ch),
             });
         }
     }
@@ -9585,6 +11961,31 @@ struct State {
     /// Words the user has added to the ignore list, lower-case.
     #[serde(default)]
     spell_ignore: Option<Vec<String>>,
+    /// The last search, kept so the find strip is still in the status bar (and still says which
+    /// occurrence is live) when the app is opened again — otherwise the only way to see it is to
+    /// search, and a restart looks as if nothing had changed.
+    #[serde(default)]
+    find: Option<FindState>,
+    /// The model the formatter and the summariser ask, where it lives, and the word count the
+    /// summariser offers. All three are absent in a state file written before the feature, and the
+    /// defaults stand in: this box's Ollama with the hosted model it already hosts.
+    #[serde(default)]
+    ai_url: Option<String>,
+    #[serde(default)]
+    ai_model: Option<String>,
+    #[serde(default)]
+    ai_words: Option<u32>,
+    /// The marks inserted last, newest first (`char` as a string, so state.json stays readable).
+    /// Absent in a state file written before the picker, which is simply an empty recents row.
+    #[serde(default)]
+    glyph_recent: Option<Vec<String>>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct FindState {
+    needle: String,
+    #[serde(default)]
+    pos: usize,
 }
 
 fn state_path() -> Option<PathBuf> {
@@ -9617,6 +12018,10 @@ fn save_state(app: &NoteCraft) {
         ),
         rail_open: Some(app.rail_open),
         pages_open: Some(app.pages_open),
+        find: app.last_needle.as_ref().map(|n| FindState {
+            needle: n.clone(),
+            pos: app.find_pos,
+        }),
         img_center: Some(app.img_center),
         img_rounded: Some(app.img_rounded),
         img_radius: Some(app.img_radius.id().to_string()),
@@ -9624,6 +12029,10 @@ fn save_state(app: &NoteCraft) {
         note_font: Some(app.note_font.id().to_string()),
         spell: Some(app.spell.id().to_string()),
         spell_ignore: Some(app.spell_ignore.clone()),
+        ai_url: Some(app.ai_cfg.url.clone()),
+        ai_model: Some(app.ai_cfg.model.clone()),
+        ai_words: Some(app.ai_words),
+        glyph_recent: Some(app.glyph_recent.iter().map(|c| c.to_string()).collect()),
     };
     if let Ok(s) = serde_json::to_string_pretty(&state) {
         let _ = std::fs::write(path, s);
@@ -9893,60 +12302,70 @@ mod tests_crop {
 }
 
 #[cfg(test)]
-mod tests_dropped_blobs {
+mod drop_place_tests {
+    use super::*;
+    use egui::{pos2, Rect, Vec2};
+
+    fn rows(heights: &[f32]) -> Vec<(usize, Rect)> {
+        let mut y = 100.0;
+        let mut out = Vec::new();
+        for (i, h) in heights.iter().enumerate() {
+            out.push((i, Rect::from_min_size(pos2(50.0, y), Vec2::new(400.0, *h))));
+            y += h + 10.0;
+        }
+        out
+    }
+
+    /// The gap rules, with no text blocks involved: above the first goes at the top, the top half of a
+    /// block goes before it, the bottom half after it, and below the last goes at the end.
+    #[test]
+    fn a_drop_lands_in_the_gap_the_pointer_is_in() {
+        let r = rows(&[30.0, 30.0, 30.0]);
+        let len = |_: usize| 0usize;
+        assert_eq!(drop_place_in(&r, &[], pos2(200.0, 50.0), len, true).map(|p| p.after), Some(0));
+        // block 0 is 100..130: its top half is before it, its bottom half after it
+        assert_eq!(drop_place_in(&r, &[], pos2(200.0, 110.0), len, true).map(|p| p.after), Some(0));
+        assert_eq!(drop_place_in(&r, &[], pos2(200.0, 125.0), len, true).map(|p| p.after), Some(1));
+        assert_eq!(drop_place_in(&r, &[], pos2(200.0, 145.0), len, true).map(|p| p.after), Some(1));
+        assert_eq!(drop_place_in(&r, &[], pos2(200.0, 165.0), len, true).map(|p| p.after), Some(2));
+        assert_eq!(drop_place_in(&r, &[], pos2(200.0, 500.0), len, true).map(|p| p.after), Some(3));
+        // an empty note has nowhere to put anything
+        assert!(drop_place_in(&[], &[], pos2(200.0, 50.0), len, true).is_none());
+    }
+}
+
+#[cfg(test)]
+mod tests_dropped {
     use super::*;
 
+    /// A browser sends the picture's magic number and calls it `image`, or sends a name with a
+    /// slash in it. Both have to end up as a real file the attachment code can classify.
     #[test]
-    fn an_extension_is_read_from_the_bytes_when_the_source_forgot_one() {
-        // Browsers often send a virtual file named "image" with no extension at all; the attachment
-        // code decides image-versus-file from the name, so the magic number has to supply it.
-        assert_eq!(guess_ext(&[0x89, b'P', b'N', b'G', 0x0d]), ".png");
+    fn virtual_files_get_a_real_name_and_an_extension_from_their_bytes() {
+        let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        assert_eq!(guess_ext(&png), ".png");
         assert_eq!(guess_ext(&[0xFF, 0xD8, 0xFF, 0xE0]), ".jpg");
         assert_eq!(guess_ext(b"GIF89a"), ".gif");
         assert_eq!(guess_ext(b"RIFF\x24\x00\x00\x00WEBPVP8 "), ".webp");
-        assert_eq!(guess_ext(b"BM\x36\x00"), ".bmp");
-        assert_eq!(guess_ext(b"not an image at all"), ".bin");
-    }
+        assert_eq!(guess_ext(b"BM6\x00"), ".bmp");
+        assert_eq!(guess_ext(b"%PDF-1.7"), ".bin");
 
-    #[test]
-    fn a_dropped_blob_becomes_a_file_the_attachment_code_can_take() {
-        let blob = crate::dropped::Blob {
-            name: "image".into(),
-            bytes: vec![0x89, b'P', b'N', b'G', 1, 2, 3],
-        };
-        let paths = blob_files(&[blob]);
-        assert_eq!(paths.len(), 1);
-        assert_eq!(
-            paths[0].extension().and_then(|e| e.to_str()),
-            Some("png"),
-            "the sniffed extension has to reach the file name: {:?}",
-            paths[0]
-        );
-        assert_eq!(std::fs::read(&paths[0]).unwrap().len(), 7);
-    }
-
-    #[test]
-    fn a_name_carrying_a_path_cannot_escape_the_drop_directory() {
-        // The name comes from another process; it must not be able to name a path of its choosing.
-        let blob = crate::dropped::Blob {
-            name: "../../etc/passwd".into(),
-            bytes: vec![0u8; 4],
-        };
-        let paths = blob_files(&[blob]);
-        assert_eq!(paths.len(), 1);
-        let file = paths[0].file_name().unwrap().to_string_lossy().to_string();
-        assert!(!file.contains(".."), "{file}");
-        assert!(!file.contains('/'), "{file}");
-        assert!(paths[0].starts_with(std::env::temp_dir().join("notecraft-drop")));
-    }
-
-    #[test]
-    fn a_nameless_blob_still_gets_a_file() {
-        let paths = blob_files(&[crate::dropped::Blob {
-            name: String::new(),
-            bytes: b"GIF89a".to_vec(),
-        }]);
-        assert_eq!(paths.len(), 1);
-        assert_eq!(paths[0].extension().and_then(|e| e.to_str()), Some("gif"));
+        let blobs = vec![
+            crate::dropped::Blob { name: "image".into(), bytes: png.to_vec() },
+            crate::dropped::Blob { name: "C:\\Users\\me\\shot.png".into(), bytes: png.to_vec() },
+            crate::dropped::Blob { name: String::new(), bytes: png.to_vec() },
+        ];
+        let paths = blob_files(&blobs);
+        assert_eq!(paths.len(), 3);
+        for p in &paths {
+            assert!(p.is_file(), "{} was not written", p.display());
+        }
+        // the extension was added where the name had none, and the source's path was dropped
+        assert!(paths[0].to_string_lossy().ends_with("-image.png"));
+        assert!(paths[1].to_string_lossy().ends_with("-shot.png"));
+        assert!(paths[2].to_string_lossy().ends_with("-dropped-2.png"));
+        for p in &paths {
+            let _ = std::fs::remove_file(p);
+        }
     }
 }

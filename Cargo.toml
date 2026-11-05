@@ -1,6 +1,6 @@
 [package]
 name = "notecraft"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 rust-version = "1.90"
 description = "NoteCraft — a fast native notes, todos and idea-capture app. Plain markdown on disk."
@@ -28,13 +28,13 @@ directories = "6"
 # IFileOpenDialog on Windows, NSOpenPanel on macOS.
 rfd = "0.17"
 # Spelling: the two word lists are embedded gzipped (1.5 MB instead of 7 MB), decompressed once
-# when spelling is switched on.
+# when spelling is switched on. Already in the graph via `image`/`png`, so this costs nothing.
 flate2 = "1"
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 # Dragging a picture *out* of the app: winit only implements the XDND destination half, so the
-# source half (selection owner, pointer polling, XdndEnter/Position/Drop) is spoken directly.
-# The same crate and version winit already uses, so this costs nothing in the dependency graph.
+# source half (selection owner, pointer grab, XdndEnter/Position/Drop) is spoken directly. The same
+# crate and version winit already uses, so this costs nothing in the dependency graph.
 x11rb = "0.13"
 raw-window-handle = "0.6"
 
@@ -56,17 +56,21 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 # cross-compiling from Linux work too.
 winresource = "0.1"
 
-[patch.crates-io]
-# Local patch so the X11 drop target also accepts image payloads (browsers drag an image as
-# image/png, which upstream winit rejects outright). Only the DnD code in vendor/winit is
-# touched; see the NOTE comments there. Not compiled on Windows or macOS.
-winit = { path = "vendor/winit" }
-
 [profile.release]
 opt-level = 2
 strip = true
 lto = "thin"
 codegen-units = 4
+
+[patch.crates-io]
+# Local patch so the X11 drop target also accepts image payloads (browsers drag an image as
+# image/png, which upstream winit rejects outright). Only the DnD code in vendor/winit is
+# touched; see the NOTE comments there. Not compiled on Windows or macOS.
+winit = { path = "vendor/winit" }
+# Local patch: a paste with only a picture on the clipboard used to emit no event at all (the key
+# press is swallowed in the same branch), so Ctrl+V looked like nothing had been pressed. One line
+# in `on_keyboard_input`; see the NOTE comment there.
+egui-winit = { path = "vendor/egui-winit" }
 
 [package.metadata.deb]
 maintainer = "Michael Bayes <mjbayes@pm.me>"
