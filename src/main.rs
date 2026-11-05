@@ -351,6 +351,35 @@ fn main() -> eframe::Result<()> {
             println!("{}", root.display());
             Ok(())
         }
+        // Open the window with *Model settings* already up: the shortest route out of a setup that
+        // does not work, and what a launcher entry or a help page can point at.
+        "ai-setup" => run_gui_with(root, true),
+        // Ask the configured model one trivial question, so a connection problem is a sentence in a
+        // terminal instead of a guess in a dialog. Same code the settings window's *Test* runs.
+        "ai-test" => {
+            let dir = directories::BaseDirs::new()
+                .map(|d| d.config_dir().join("notecraft"))
+                .unwrap_or_else(|| PathBuf::from("."));
+            let settings = ai::Settings::load(&dir);
+            let cfg = settings.to_cfg();
+            println!(
+                "{}  ·  {}  ·  {}{}",
+                cfg.provider.label(),
+                cfg.endpoint(),
+                cfg.model,
+                if cfg.key.is_empty() { "  ·  no key" } else { "  ·  key set" }
+            );
+            match ai::probe(&cfg) {
+                Ok(said) => {
+                    println!("connected — the model answered {said:?}");
+                    Ok(())
+                }
+                Err(why) => {
+                    eprintln!("notecraft: {why}");
+                    std::process::exit(1);
+                }
+            }
+        }
         "version" | "--version" | "-V" => {
             println!("notecraft {}", env!("CARGO_PKG_VERSION"));
             println!("vault: {}", root.display());
@@ -364,6 +393,8 @@ fn main() -> eframe::Result<()> {
                  notecraft search Q   search pages\n\
                  notecraft path       print vault root ({})\n\
                  notecraft doc-sync P  rebuild page P's .note document from its markdown\n\
+                 notecraft ai-test    ask the configured model one question\n\
+                 notecraft ai-setup   open the window on the model settings\n\
                  notecraft --version  print the version\n\
                  --software           render on the CPU (no GPU needed)\n\
                  --x11 / --wayland    choose the windowing backend (Linux only)",
@@ -377,11 +408,11 @@ fn main() -> eframe::Result<()> {
             eprintln!("notecraft: unknown command {other:?} — try `notecraft help`");
             std::process::exit(2);
         }
-        _ => run_gui(root),
+        _ => run_gui_with(root, false),
     }
 }
 
-fn run_gui(root: PathBuf) -> eframe::Result<()> {
+fn run_gui_with(root: PathBuf, ai_setup: bool) -> eframe::Result<()> {
     // Backend choice and software rendering belong to the window and nowhere else: a CLI verb like
     // `notecraft tasks` must print the todos, not which windowing system it would have used.
     apply_backend(backend_choice());
@@ -436,6 +467,6 @@ fn run_gui(root: PathBuf) -> eframe::Result<()> {
     eframe::run_native(
         "NoteCraft",
         options,
-        Box::new(move |cc| Ok(Box::new(app::NoteCraft::new(cc, root)))),
+        Box::new(move |cc| Ok(Box::new(app::NoteCraft::new(cc, root, ai_setup)))),
     )
 }

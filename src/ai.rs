@@ -1,11 +1,21 @@
 //! The page formatter and the summariser: the only part of NoteCraft that asks a language model
 //! anything.
 //!
-//! Both talk to a **local Ollama** (`/api/chat`), which on this box also fronts the hosted models
-//! (`deepseek-v4.1-flash:cloud` and friends are proxied through it), so one plain-HTTP endpoint
-//! covers local and cloud and nothing here needs TLS, a key or a dependency. `http` speaks the four
-//! lines of HTTP/1.1 it needs and de-chunks the reply; that is cheaper to keep working than a
-//! client crate, and it is the same rule the base64 writer in `export` follows.
+//! **Where the model lives is the user's choice, not the app's.** `Settings` (saved in
+//! `ai.json` beside `state.json`, mode 0600 because it may hold a key) names a provider, a base
+//! URL, a model and how to find the key — or the key itself. Two shapes are spoken:
+//!
+//! * **Ollama** (`provider: "ollama"`, `POST {base}/api/chat`) — a local daemon on
+//!   `http://127.0.0.1:11434` by default, and the same shape as ollama.com for hosted models,
+//!   which needs a key.
+//! * **OpenAI-compatible** (`provider: "openai"`, `POST {base}/v1/chat/completions`) — OpenAI,
+//!   OpenRouter, Groq, Together, DeepSeek, Fireworks, LM Studio, llama.cpp's server, vLLM: all of
+//!   them speak this, and Anthropic/Gemini are reachable through OpenRouter or their own
+//!   compatible endpoints.
+//!
+//! Nothing is assumed about the address: `https://` is spoken too (TLS through `rustls`, bundled
+//! roots, so no system packages and no OpenSSL), and a key is sent as `Authorization: Bearer …`
+//! only when one is configured.
 //!
 //! **The formatter's contract is the point.** The model never retypes the article: Rust splits the
 //! page into numbered units and the model only says how to *group* them into blocks. Its reply is a
@@ -15,13 +25,18 @@
 //! reorder or lose a word. That is what makes it safe to run on a page the user cares about.
 
 use crate::doc::{Block, Doc, Kind, Run};
-use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// A local Ollama, and the model most people will have pulled. Both are editable in the app; these
+/// are only what the fields start as.
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11434";
-pub const DEFAULT_MODEL: &str = "deepseek-v4.1-flash:cloud";
+pub const DEFAULT_MODEL: &str = "llama3.2";
+pub const OPENAI_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_WORDS: u32 = 200;
+/// The file `Settings` lives in, beside `state.json`. Holds a key when one is typed in, so it is
+/// written 0600 and never committed anywhere.
+pub const SETTINGS_FILE: &str = "ai.json";
 
 /// Units per request. A 3000-word article is ~150 sentences, so it goes out in two or three calls
 /// that run one after another on the worker thread; the reply for one batch is validated on its own.
@@ -36,21 +51,200 @@ const MAX_UNIT: usize = 380;
 /// heading, a caption): splitting it into "sentences" would glue it to the next line's prose.
 const HEADING_WORDS: usize = 14;
 
-/// Where the model lives and which one to ask.
+/// Which request shape the endpoint speaks. Two cover everything people actually run.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    /// `POST {base}/api/chat` — Ollama on this machine, or ollama.com for hosted models.
+    #[default]
+    Ollama,
+    /// `POST {base}/v1/chat/completions` — OpenAI, OpenRouter, Groq, Together, DeepSeek, LM Studio,
+    /// llama.cpp's server, vLLM, and the compatible front doors of Anthropic and Google.
+    OpenAi,
+}
+
+impl Provider {
+    pub fn label(self) -> &'static str {
+        match self {
+            Provider::Ollama => "Ollama",
+            Provider::OpenAi => "OpenAI-compatible",
+        }
+    }
+
+    /// What the server field starts as, and what it goes back to when the shape is switched.
+    pub fn default_url(self) -> &'static str {
+        match self {
+            Provider::Ollama => DEFAULT_URL,
+            Provider::OpenAi => OPENAI_URL,
+        }
+    }
+
+    pub fn default_model(self) -> &'static str {
+        match self {
+            Provider::Ollama => DEFAULT_MODEL,
+            Provider::OpenAi => "gpt-4o-mini",
+        }
+    }
+
+    /// A key is optional for a local Ollama and required for everything else in practice.
+    pub fn needs_key(self, url: &str) -> bool {
+        match self {
+            Provider::Ollama => !is_local(url),
+            Provider::OpenAi => !is_local(url),
+        }
+    }
+}
+
+/// `127.0.0.1`, `localhost`, `::1`, or a bare host with no dot: a server on this machine, which
+/// needs no key and is worth saying so about.
+pub fn is_local(url: &str) -> bool {
+    let rest = url.split("://").nth(1).unwrap_or(url);
+    let host = rest.split('/').next().unwrap_or(rest);
+    let host = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    host == "localhost"
+        || host == "::1"
+        || host.starts_with("127.")
+        || host == "0.0.0.0"
+        || (!host.contains('.') && !host.is_empty())
+}
+
+/// Where the model lives, which one to ask, and the key to ask with (empty for a local server).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Cfg {
+    pub provider: Provider,
     pub url: String,
     pub model: String,
+    pub key: String,
     pub num_ctx: u32,
 }
 
 impl Default for Cfg {
     fn default() -> Self {
         Cfg {
+            provider: Provider::Ollama,
             url: DEFAULT_URL.to_string(),
             model: DEFAULT_MODEL.to_string(),
+            key: String::new(),
             num_ctx: 8192,
         }
+    }
+}
+
+impl Cfg {
+    /// The URL a chat request is actually posted to.
+    ///
+    /// The field holds a *base*, because that is what people paste: `http://127.0.0.1:11434`,
+    /// `https://openrouter.ai/api/v1`, `http://localhost:1234/v1`. A full endpoint is accepted too
+    /// and left alone, so pasting the URL out of a provider's docs cannot double the path.
+    pub fn endpoint(&self) -> String {
+        let base = self.url.trim().trim_end_matches('/');
+        match self.provider {
+            Provider::Ollama => {
+                if base.ends_with("/api/chat") {
+                    base.to_string()
+                } else {
+                    format!("{base}/api/chat")
+                }
+            }
+            Provider::OpenAi => {
+                if base.ends_with("/chat/completions") {
+                    base.to_string()
+                } else if base.ends_with("/v1") || base.ends_with("/v1beta") {
+                    format!("{base}/chat/completions")
+                } else {
+                    format!("{base}/v1/chat/completions")
+                }
+            }
+        }
+    }
+
+}
+
+/// What is saved in `ai.json`: the connection, and nothing about the notes.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Settings {
+    #[serde(default)]
+    pub provider: Provider,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub model: String,
+    /// The key itself, when the user would rather type it than set a variable. The file is 0600.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub key: String,
+    /// The name of an environment variable to read the key from — nothing secret on disk.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub key_env: String,
+    /// Ollama's context window. Absent means the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub num_ctx: Option<u32>,
+}
+
+impl Settings {
+    pub fn path(dir: &Path) -> PathBuf {
+        dir.join(SETTINGS_FILE)
+    }
+
+    /// Read the file, filling in whatever it does not say. A missing or unreadable file is not an
+    /// error: it is the first run, and the defaults are a local Ollama.
+    pub fn load(dir: &Path) -> Settings {
+        let mut s: Settings = std::fs::read_to_string(Settings::path(dir))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        if s.url.trim().is_empty() {
+            s.url = s.provider.default_url().to_string();
+        }
+        if s.model.trim().is_empty() {
+            s.model = s.provider.default_model().to_string();
+        }
+        s
+    }
+
+    /// Write the file, 0600 on unix because it may hold a key. The directory is created.
+    pub fn save(&self, dir: &Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dir)?;
+        let path = Settings::path(dir);
+        let body = serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string());
+        std::fs::write(&path, body)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
+    }
+
+    /// The key to send: the environment variable if one is named and set, otherwise the stored one.
+    pub fn resolved_key(&self) -> String {
+        let named = self.key_env.trim();
+        if !named.is_empty() {
+            if let Ok(v) = std::env::var(named) {
+                if !v.trim().is_empty() {
+                    return v.trim().to_string();
+                }
+            }
+        }
+        self.key.trim().to_string()
+    }
+
+    pub fn to_cfg(&self) -> Cfg {
+        let mut cfg = Cfg::default();
+        cfg.provider = self.provider;
+        cfg.url = if self.url.trim().is_empty() {
+            self.provider.default_url().to_string()
+        } else {
+            self.url.trim().trim_end_matches('/').to_string()
+        };
+        cfg.model = if self.model.trim().is_empty() {
+            self.provider.default_model().to_string()
+        } else {
+            self.model.trim().to_string()
+        };
+        cfg.key = self.resolved_key();
+        cfg.num_ctx = self.num_ctx.unwrap_or(8192);
+        cfg
     }
 }
 
@@ -540,95 +734,74 @@ pub fn summary_blocks(text: &str) -> Vec<Block> {
 
 // ------------------------------------------------------------------ talking to Ollama
 
-/// One request, one reply body. Plain HTTP over TCP: the endpoint is on this machine, and the reply
-/// is de-chunked here rather than by a client crate.
-fn http(url: &str, method: &str, body: Option<&str>, timeout: Duration) -> Result<String, String> {
-    let rest = url
-        .strip_prefix("http://")
-        .ok_or_else(|| format!("only http:// endpoints are spoken to (got {url})"))?;
-    let (authority, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, "/"),
-    };
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) => (h, p.parse::<u16>().map_err(|_| format!("bad port in {url}"))?),
-        None => (authority, 80u16),
-    };
-    let addr = (host, port)
-        .to_socket_addrs()
-        .map_err(|e| format!("{host}:{port} — {e}"))?
-        .next()
-        .ok_or_else(|| format!("{host}:{port} did not resolve"))?;
-    let mut sock = TcpStream::connect_timeout(&addr, Duration::from_secs(5))
-        .map_err(|e| format!("cannot reach the model server at {host}:{port} — {e}"))?;
-    sock.set_read_timeout(Some(timeout)).ok();
-    sock.set_write_timeout(Some(timeout)).ok();
-    let body = body.unwrap_or("");
-    let mut req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {authority}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    )
-    .into_bytes();
-    req.extend_from_slice(body.as_bytes());
-    sock.write_all(&req)
-        .map_err(|e| format!("sending to {host}:{port} failed — {e}"))?;
-    let mut raw = Vec::new();
-    sock.read_to_end(&mut raw)
-        .map_err(|e| format!("reading from {host}:{port} failed — {e}"))?;
-    parse_response(&raw)
+// ------------------------------------------------------------------ the wire
+
+/// POST a JSON body to the configured endpoint and hand back the reply body.
+///
+/// A non-2xx reply is **not** thrown away: providers put the reason in the body (`{"error":
+/// {"message": "invalid api key"}}`, `{"error": "model not found"}`), and that sentence is what the
+/// status bar should say, so the body is read and mined before an error is returned.
+fn post_json(cfg: &Cfg, body: &str, timeout: Duration) -> Result<String, String> {
+    let url = cfg.endpoint();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let mut req = agent
+        .post(&url)
+        .header("content-type", "application/json")
+        .header("accept", "application/json");
+    if !cfg.key.is_empty() {
+        req = req.header("authorization", &format!("Bearer {}", cfg.key));
+    }
+    let mut res = req
+        .send(body.as_bytes())
+        .map_err(|e| format!("cannot reach the model server — {e}"))?;
+    let status = res.status().as_u16();
+    let text = res
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| format!("the model server's reply could not be read — {e}"))?;
+    if !(200..300).contains(&status) {
+        return Err(server_error(&url, status, &text));
+    }
+    Ok(text)
 }
 
-/// Split an HTTP reply into its body: status first, then `transfer-encoding: chunked` or
-/// `content-length`, which is every shape Ollama sends.
-fn parse_response(raw: &[u8]) -> Result<String, String> {
-    let split = raw
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .ok_or_else(|| "the model server's reply had no header block".to_string())?;
-    let head = String::from_utf8_lossy(&raw[..split]).to_string();
-    let mut body = &raw[split + 4..];
-    let mut chunked = false;
-    let mut length: Option<usize> = None;
-    for (i, line) in head.split("\r\n").enumerate() {
-        let lower = line.to_lowercase();
-        if i == 0 && !lower.contains(" 200") {
-            return Err(format!("the model server answered {}", line.trim()));
-        }
-        if let Some(v) = lower.strip_prefix("transfer-encoding:") {
-            chunked = v.contains("chunked");
-        }
-        if let Some(v) = lower.strip_prefix("content-length:") {
-            length = v.trim().parse().ok();
-        }
-    }
-    if chunked {
-        let mut out = Vec::new();
-        loop {
-            let Some(eol) = body.windows(2).position(|w| w == b"\r\n") else {
-                break;
-            };
-            let size = String::from_utf8_lossy(&body[..eol]).trim().to_string();
-            let size = usize::from_str_radix(size.trim_end_matches(';').trim(), 16).unwrap_or(0);
-            body = &body[eol + 2..];
-            if size == 0 {
-                break;
+/// The sentence to show for a refused request: whatever the provider said, or the status alone.
+fn server_error(url: &str, status: u16, body: &str) -> String {
+    let said = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("error")
+                .and_then(|e| {
+                    e.get("message")
+                        .and_then(|m| m.as_str())
+                        .or_else(|| e.as_str())
+                })
+                .or_else(|| v.get("message").and_then(|m| m.as_str()))
+                .map(|m| m.trim().to_string())
+        })
+        .filter(|m| !m.is_empty());
+    let host = url.split('/').nth(2).unwrap_or(url);
+    match said {
+        Some(m) => format!("{host} refused it ({status}): {m}"),
+        None => {
+            let brief: String = body.trim().chars().take(200).collect();
+            if brief.is_empty() {
+                format!("{host} answered {status}")
+            } else {
+                format!("{host} answered {status}: {brief}")
             }
-            if body.len() < size {
-                out.extend_from_slice(body);
-                break;
-            }
-            out.extend_from_slice(&body[..size]);
-            body = &body[(size + 2).min(body.len())..];
         }
-        return Ok(String::from_utf8_lossy(&out).to_string());
     }
-    if let Some(n) = length {
-        return Ok(String::from_utf8_lossy(&body[..n.min(body.len())]).to_string());
-    }
-    Ok(String::from_utf8_lossy(body).to_string())
 }
 
-/// One chat turn. `json` asks Ollama to constrain the reply to a JSON object.
+/// One chat turn. `json` asks for a JSON object where the provider supports that natively; the
+/// OpenAI-compatible shape does not, because `response_format` is the one field half the servers
+/// that speak it refuse — the prompts ask for JSON in words instead, and the reply is parsed
+/// leniently.
 fn chat(
     cfg: &Cfg,
     system: &str,
@@ -637,35 +810,80 @@ fn chat(
     timeout: Duration,
     num_ctx: u32,
 ) -> Result<String, String> {
-    let mut payload = serde_json::json!({
-        "model": cfg.model,
-        "stream": false,
-        "options": { "temperature": 0, "num_ctx": num_ctx },
-        "messages": [
-            { "role": "system", "content": system },
-            { "role": "user", "content": user },
-        ],
-    });
-    if json {
-        payload["format"] = serde_json::json!("json");
-    }
-    let reply = http(
-        &format!("{}/api/chat", cfg.url.trim_end_matches('/')),
-        "POST",
-        Some(&payload.to_string()),
-        timeout,
-    )?;
+    let messages = serde_json::json!([
+        { "role": "system", "content": system },
+        { "role": "user", "content": user },
+    ]);
+    let payload = match cfg.provider {
+        Provider::Ollama => {
+            let mut p = serde_json::json!({
+                "model": cfg.model,
+                "stream": false,
+                "options": { "temperature": 0, "num_ctx": num_ctx },
+                "messages": messages,
+            });
+            if json {
+                p["format"] = serde_json::json!("json");
+            }
+            p
+        }
+        Provider::OpenAi => serde_json::json!({
+            "model": cfg.model,
+            "temperature": 0,
+            "stream": false,
+            "messages": messages,
+        }),
+    };
+    let reply = post_json(cfg, &payload.to_string(), timeout)?;
     let v: serde_json::Value = serde_json::from_str(&reply)
         .map_err(|e| format!("the model server's reply was not JSON ({e})"))?;
-    if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
+    if let Some(err) = v
+        .get("error")
+        .and_then(|e| e.get("message").and_then(|m| m.as_str()).or_else(|| e.as_str()))
+    {
         return Err(format!("{} — {err}", cfg.model));
     }
-    let content = v
-        .get("message")
-        .and_then(|m| m.get("content"))
-        .and_then(|c| c.as_str())
-        .ok_or_else(|| "the model's reply had no message".to_string())?;
+    let content = match cfg.provider {
+        Provider::Ollama => v
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str()),
+        Provider::OpenAi => v
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str()),
+    };
+    let content = content.ok_or_else(|| {
+        format!(
+            "{} answered without any text — check that the model name exists",
+            cfg.model
+        )
+    })?;
     Ok(content.to_string())
+}
+
+/// Ask the server one trivial question, so the settings window can say whether the address, the
+/// key and the model name all work — before the user finds out by formatting a page.
+pub fn probe(cfg: &Cfg) -> Result<String, String> {
+    if cfg.model.trim().is_empty() {
+        return Err("no model name is set".to_string());
+    }
+    let reply = chat(
+        cfg,
+        "You are a connection test. Answer with one short word.",
+        "Reply with the word: ready",
+        false,
+        Duration::from_secs(60),
+        cfg.num_ctx.min(2048),
+    )?;
+    let said: String = reply.trim().replace('\n', " ").chars().take(60).collect();
+    if said.is_empty() {
+        Err("the model answered with nothing".to_string())
+    } else {
+        Ok(said)
+    }
 }
 
 // ------------------------------------------------------------------ formatting a page
@@ -1034,19 +1252,6 @@ It was planned in the late 1960s. Dr. Smith disagreed! Who won? The scheme won, 
     }
 
     #[test]
-    fn http_replies_are_read_with_a_length_and_with_chunks() {
-        let plain = b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhello";
-        assert_eq!(parse_response(plain).unwrap(), "hello");
-
-        let chunked =
-            b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n";
-        assert_eq!(parse_response(chunked).unwrap(), "hello world");
-
-        let bad = b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 3\r\n\r\nno!";
-        assert!(parse_response(bad).is_err());
-    }
-
-    #[test]
     fn page_text_reads_the_words_and_skips_the_pictures() {
         let mut doc = Doc::default();
         doc.blocks.push(block_of(Kind::Heading(2), "Etymology"));
@@ -1108,4 +1313,226 @@ meant the loss of numerous farms and a school.";
         let n = summary.split_whitespace().count();
         assert!((20..160).contains(&n), "asked for 60 words, got {n}");
     }
+    // ---------------------------------------------------------------- the connection
+
+    /// The field holds what people paste. A base becomes the endpoint; a full endpoint is left
+    /// exactly as pasted, so copying a URL out of a provider's docs cannot double the path.
+    #[test]
+    fn the_endpoint_follows_from_the_base_people_paste() {
+        let ollama = |url: &str| Cfg {
+            provider: Provider::Ollama,
+            url: url.to_string(),
+            ..Cfg::default()
+        }
+        .endpoint();
+        assert_eq!(ollama("http://127.0.0.1:11434"), "http://127.0.0.1:11434/api/chat");
+        assert_eq!(ollama("http://127.0.0.1:11434/"), "http://127.0.0.1:11434/api/chat");
+        assert_eq!(ollama("http://box:11434/api/chat"), "http://box:11434/api/chat");
+        assert_eq!(ollama("https://ollama.com"), "https://ollama.com/api/chat");
+
+        let openai = |url: &str| Cfg {
+            provider: Provider::OpenAi,
+            url: url.to_string(),
+            ..Cfg::default()
+        }
+        .endpoint();
+        assert_eq!(
+            openai("https://api.openai.com/v1"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            openai("https://openrouter.ai/api/v1/"),
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(
+            openai("http://localhost:1234"),
+            "http://localhost:1234/v1/chat/completions"
+        );
+        assert_eq!(
+            openai("http://localhost:8080/v1/chat/completions"),
+            "http://localhost:8080/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn a_local_address_is_recognised_and_needs_no_key() {
+        for local in [
+            "http://127.0.0.1:11434",
+            "http://localhost:1234/v1",
+            "http://[::1]:11434",
+            "https://box:11434",
+            "http://0.0.0.0:8080",
+        ] {
+            assert!(is_local(local), "{local} should be local");
+        }
+        for remote in ["https://api.openai.com/v1", "https://ollama.com", "http://192.168.1.9:11434"]
+        {
+            assert!(!is_local(remote), "{remote} should be remote");
+        }
+    }
+
+    /// `ai.json` holds the key when the user types one in, so it must be private on disk — and a
+    /// file that only says part of it still opens with the rest filled from the defaults.
+    #[test]
+    fn settings_round_trip_and_keep_the_key_private() {
+        let dir = std::env::temp_dir().join(format!("nc-ai-settings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = Settings {
+            provider: Provider::OpenAi,
+            url: "https://openrouter.ai/api/v1".into(),
+            model: "anthropic/claude-3.5-sonnet".into(),
+            key: "sk-or-secret".into(),
+            key_env: String::new(),
+            num_ctx: None,
+        };
+        s.save(&dir).unwrap();
+        let back = Settings::load(&dir);
+        assert_eq!(back, s);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(Settings::path(&dir)).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "ai.json must not be readable by anyone else");
+        }
+
+        // a partial file: the blanks are filled from the shape's defaults, not left empty
+        std::fs::write(
+            Settings::path(&dir),
+            r#"{"provider":"openai","model":"gpt-4o-mini"}"#,
+        )
+        .unwrap();
+        let partial = Settings::load(&dir);
+        assert_eq!(partial.url, OPENAI_URL);
+        assert!(partial.to_cfg().key.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_key_can_come_from_an_environment_variable() {
+        let s = Settings {
+            provider: Provider::OpenAi,
+            url: "https://api.openai.com/v1".into(),
+            model: "gpt-4o-mini".into(),
+            key: "typed-in".into(),
+            key_env: "NOTECRAFT_TEST_KEY".into(),
+            num_ctx: None,
+        };
+        // unsafe: the test sets a variable for its own process only, and reads it straight back
+        unsafe { std::env::set_var("NOTECRAFT_TEST_KEY", "from-env") };
+        assert_eq!(s.to_cfg().key, "from-env", "a named variable wins over a stored key");
+        unsafe { std::env::remove_var("NOTECRAFT_TEST_KEY") };
+        assert_eq!(s.to_cfg().key, "typed-in", "with no variable set the stored key is used");
+    }
+
+    /// A fake server that answers one request the way a provider would, so both shapes are proved
+    /// end to end: the path asked, the header sent, and the reply read. Nothing leaves the machine.
+    fn serve_once(status: &str, body: &str) -> (String, std::sync::mpsc::Receiver<String>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reply = body.to_string();
+        let head = status.to_string();
+        std::thread::spawn(move || {
+            if let Ok((mut sock, _)) = listener.accept() {
+                let mut raw = Vec::new();
+                let mut buf = [0u8; 4096];
+                // read the head, then exactly Content-Length more
+                loop {
+                    let n = sock.read(&mut buf).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    raw.extend_from_slice(&buf[..n]);
+                    if let Some(split) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&raw[..split]).to_lowercase();
+                        let want = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        if raw.len() >= split + 4 + want {
+                            break;
+                        }
+                    }
+                }
+                let _ = tx.send(String::from_utf8_lossy(&raw).to_string());
+                let msg = format!(
+                    "HTTP/1.1 {head}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+                let _ = sock.write_all(msg.as_bytes());
+            }
+        });
+        (format!("http://{}", addr), rx)
+    }
+
+    #[test]
+    fn an_ollama_reply_is_read_and_the_key_is_sent_as_a_bearer() {
+        let (base, seen) = serve_once(
+            "200 OK",
+            r#"{"message":{"role":"assistant","content":"ready"},"done":true}"#,
+        );
+        let cfg = Cfg {
+            provider: Provider::Ollama,
+            url: base,
+            model: "llama3.2".into(),
+            key: "secret-key".into(),
+            num_ctx: 4096,
+        };
+        let said = chat(&cfg, "sys", "user", false, Duration::from_secs(10), 4096).unwrap();
+        assert_eq!(said, "ready");
+
+        let req = seen.recv().unwrap();
+        assert!(req.starts_with("POST /api/chat "), "asked {}", &req[..40.min(req.len())]);
+        let lower = req.to_lowercase();
+        assert!(lower.contains("authorization: bearer secret-key"));
+        assert!(lower.contains(r#""model":"llama3.2""#));
+        assert!(lower.contains(r#""stream":false"#));
+    }
+
+    #[test]
+    fn an_openai_reply_is_read_from_choices() {
+        let (base, seen) = serve_once(
+            "200 OK",
+            r#"{"choices":[{"message":{"role":"assistant","content":"ready"},"finish_reason":"stop"}]}"#,
+        );
+        let cfg = Cfg {
+            provider: Provider::OpenAi,
+            url: format!("{base}/v1"),
+            model: "gpt-4o-mini".into(),
+            key: String::new(),
+            num_ctx: 8192,
+        };
+        let said = chat(&cfg, "sys", "user", false, Duration::from_secs(10), 8192).unwrap();
+        assert_eq!(said, "ready");
+
+        let req = seen.recv().unwrap();
+        assert!(req.starts_with("POST /v1/chat/completions "), "asked {}", &req[..40.min(req.len())]);
+        let lower = req.to_lowercase();
+        assert!(!lower.contains("authorization:"), "no key configured, no header");
+        assert!(lower.contains(r#""temperature":0"#));
+    }
+
+    /// The provider's own sentence is the useful one: a refused key has to say so, not "error".
+    #[test]
+    fn a_refused_request_says_what_the_server_said() {
+        let (base, _seen) = serve_once(
+            "401 Unauthorized",
+            r#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}"#,
+        );
+        let cfg = Cfg {
+            provider: Provider::OpenAi,
+            url: format!("{base}/v1"),
+            model: "gpt-4o-mini".into(),
+            key: "wrong".into(),
+            num_ctx: 8192,
+        };
+        let err = chat(&cfg, "sys", "user", false, Duration::from_secs(10), 8192).unwrap_err();
+        assert!(err.contains("401"), "{err}");
+        assert!(err.contains("Incorrect API key provided"), "{err}");
+    }
+
 }

@@ -30,6 +30,7 @@ rfd = "0.17"
 # Spelling: the two word lists are embedded gzipped (1.5 MB instead of 7 MB), decompressed once
 # when spelling is switched on. Already in the graph via `image`/`png`, so this costs nothing.
 flate2 = "1"
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 # Dragging a picture *out* of the app: winit only implements the XDND destination half, so the

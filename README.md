@@ -5,8 +5,9 @@
 NoteCraft is a desktop notes app that keeps every page as a plain markdown file in a folder you
 choose. Notebooks, sections, pages, a block editor with real formatting, eleven note faces, colour emoji,
 todos with due dates, tags, images, screen snips, spellcheck and export — with no account, no
-database and no lock-in. If you have a local model (Ollama), it can also tidy a pasted article into
-blocks or summarise a page; without one, that menu is simply absent.
+database and no lock-in. Point it at a model — a local Ollama, or any OpenAI-compatible server you
+have a key for — and it will tidy a pasted article into blocks or summarise a page; without one,
+that menu simply says so.
 
 Built in Rust with [egui](https://github.com/emilk/egui), so it runs as one native window on
 **Linux**, **macOS** and **Windows**.
@@ -84,10 +85,12 @@ NOTECRAFT_VAULT=~/Sync/Notes notecraft
   Bitter, Caveat and Carlito — each name drawn in the face it names, with text size S/M/L. Colour
   emoji are painted from a Twemoji pack (egui's rasteriser cannot read a colour font), and the
   symbol picker only offers characters the bundled faces can actually draw.
-- **Format and summarise with a local model** (optional): a pasted article becomes headings,
+- **Format and summarise with your own model** (optional): a pasted article becomes headings,
   bullets and paragraphs without the model retyping a word — it only says how to group the text —
-  and any page can be summarised into a block. Both talk to a local Ollama; nothing leaves the
-  machine and there is no key to configure.
+  and any page can be summarised into a block. Point it at a local [Ollama](https://ollama.com),
+  at ollama.com's hosted models, or at any OpenAI-compatible server (OpenAI, OpenRouter, Groq,
+  DeepSeek, LM Studio, llama.cpp's server, vLLM…): *AI → Model settings*. Nothing is configured
+  for you and nothing is sent anywhere until you name a server.
 - **Spellcheck** with British and American dictionaries, per page.
 - **Five themes** (`Ctrl+Shift+T`): Void, Ember, Slate, Paper, and **WordCraft** — Word's layout, done
   natively: three strips (title, menu line, command row), a contextual ribbon that changes with the
@@ -113,6 +116,37 @@ NOTECRAFT_VAULT=~/Sync/Notes notecraft
 | `Ctrl+V` | paste an image or files from the clipboard |
 | `Ctrl+Shift+V` | paste an image as a new block |
 | `Ctrl+Shift+S` / `Ctrl+Shift+A` / `Ctrl+Shift+C` | snip the screen / annotate / crop a picture |
+
+### Using your own model
+
+*AI → Model settings…* is the whole of it: pick a **shape**, paste the **server**, name the
+**model**, and give a **key** if the server wants one. *Test* asks the model one question before
+you save, so a wrong address or a refused key says so in the dialog rather than in the middle of
+formatting a page.
+
+| Shape | Speaks | Start with |
+| --- | --- | --- |
+| **Ollama** | `POST {server}/api/chat` | `http://127.0.0.1:11434` + a model you have pulled (`ollama list`) |
+| **OpenAI-compatible** | `POST {server}/v1/chat/completions` | `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`, `http://localhost:1234/v1` (LM Studio), `http://localhost:8080` (llama.cpp) |
+
+*Ollama cloud* is the Ollama shape pointed at `https://ollama.com` with an `ollama.com` key.
+Anthropic and Google models are reachable through OpenRouter, or through their own
+OpenAI-compatible endpoints. Anything `https://` is spoken directly — TLS with bundled roots, so
+there is nothing to install.
+
+The key is either typed into that dialog or, better, **named**: put `OPENROUTER_API_KEY` in the
+"key from" field and the app reads the variable at each request, so no secret is written to disk.
+A key typed in is stored in `ai.json` beside `state.json` (`~/.config/notecraft/` on Linux,
+`~/Library/Application Support/notecraft/` on macOS, `%APPDATA%\notecraft\` on Windows) with mode
+`0600` and never in the notes folder.
+
+```
+notecraft ai-test     # ask the configured model one question and print its answer
+notecraft ai-setup    # open the window with Model settings already up
+```
+
+Nothing here is required: with no server configured the AI menu simply says so, and the rest of
+the app is unaffected.
 
 ### Command line
 
@@ -176,7 +210,7 @@ packaging/macos/make-app.sh target/release/notecraft 1.0.0 dist
 | `src/platform.rs` | **everything that differs between the platforms**: file choosers, screen capture, opening a folder, the backend readout, the single-window lock |
 | `src/emoji.rs` | colour emoji painted over the monochrome glyph cell, from `assets/emoji.pack` |
 | `src/glyphs.rs` | the symbol and emoji catalogue, built from the bundled faces' own cmaps |
-| `src/ai.rs` | the page formatter and the summariser: one plain-HTTP call to a local Ollama |
+| `src/ai.rs` | the page formatter and the summariser: one HTTP call to the model the user configured — local Ollama, ollama.com, or any OpenAI-compatible server |
 | `src/attach.rs`, `src/imgcache.rs`, `src/highlight.rs`, `src/spell.rs`, `src/export.rs` | attachments, image decoding cache, text layout, spelling, exports |
 | `src/keylayout.rs`, `src/dragout.rs` | Linux extras: the KDE keyboard-layout chip, and dragging a picture out (X11 XDND) |
 
@@ -216,9 +250,10 @@ install beside the binary.
 - **If a drop or a hotkey does nothing,** Windows writes what happened to
   `%APPDATA%\notecraft\dnd.log` (Linux: `~/.config/notecraft/dnd.log`). It names the formats the drag
   source offered, which is usually enough to tell a rejected drag from one that never arrived.
-- **Format page / Summarise page** need a local [Ollama](https://ollama.com) with a model pulled;
-  the model name is a field in the app. Without one the two menu rows report that no model answered
-  and nothing else changes — no notes data is sent anywhere.
+- **Format page / Summarise page** need a model you have pointed the app at (see *Using your own
+  model*). With nothing configured the AI menu says so and nothing else changes. A model on your
+  own machine keeps the words on it; a cloud endpoint sends the page's text to that provider,
+  which the settings window says in as many words.
 - **Colour emoji are painted pictures, not font glyphs**, because the toolkit's rasteriser reads
   outline fonts only. They scale with the note text but are not shaped by it (no colour-font
   ligatures), and a page exported to plain text carries the emoji character itself.

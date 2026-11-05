@@ -340,8 +340,12 @@ pub struct NoteCraft {
     ai_job: Option<AiJob>,
     /// The summariser's window, while it is open, with the fields it owns.
     ai_dialog: Option<AiDialog>,
-    /// Which model to ask, and where it lives (`state.json`).
+    /// Where the model lives and how to reach it (`ai.json`, 0600 because it may hold a key).
+    ai_settings: ai::Settings,
+    /// `ai_settings` resolved into what a request actually needs: provider, endpoint, model, key.
     ai_cfg: ai::Cfg,
+    /// The *model settings* window, while it is open: the fields as typed, and the last probe.
+    ai_setup: Option<AiSetup>,
     /// The word count the summariser offers next time (`state.json`).
     ai_words: u32,
     /// NoteCraft's own X11 window, when it is an X11 client: the drag-out refuses to drop the picture
@@ -506,6 +510,20 @@ enum AiDone {
 struct AiDialog {
     model: String,
     words: String,
+}
+
+/// The *model settings* window: the connection as typed, and what the last test said.
+struct AiSetup {
+    provider: ai::Provider,
+    url: String,
+    model: String,
+    key: String,
+    key_env: String,
+    /// Whether the key field is shown in the clear.
+    show_key: bool,
+    /// A probe in flight, or its last answer.
+    testing: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    verdict: Option<Result<String, String>>,
 }
 
 /// A click on the keyboard chip: what it would do.
@@ -1511,7 +1529,7 @@ mod tests_panels {
 }
 
 impl NoteCraft {
-    pub fn new(cc: &eframe::CreationContext<'_>, vault_root: PathBuf) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, vault_root: PathBuf, ai_setup: bool) -> NoteCraft {
         theme::install_fonts(&cc.egui_ctx);
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
@@ -1596,14 +1614,30 @@ impl NoteCraft {
             drag_rx: None,
             ai_job: None,
             ai_dialog: None,
-            ai_cfg: ai::Cfg {
-                url: state.ai_url.clone().unwrap_or_else(|| ai::DEFAULT_URL.to_string()),
-                model: state
-                    .ai_model
-                    .clone()
-                    .unwrap_or_else(|| ai::DEFAULT_MODEL.to_string()),
-                num_ctx: ai::Cfg::default().num_ctx,
+            ai_settings: {
+                let dir = config_dir();
+                let fresh = ai::Settings::path(&dir).exists();
+                let mut s = ai::Settings::load(&dir);
+                // A state.json from before ai.json held the endpoint and the model name: carry them
+                // over once, so an existing setup keeps working across the upgrade.
+                if !fresh {
+                    if let Some(url) = state.ai_url.as_deref().filter(|u| !u.trim().is_empty()) {
+                        s.provider = if url.contains(":11434") || url.contains("/api/") {
+                            ai::Provider::Ollama
+                        } else {
+                            ai::Provider::OpenAi
+                        };
+                        s.url = url.trim().to_string();
+                    }
+                    if let Some(model) = state.ai_model.as_deref().filter(|m| !m.trim().is_empty()) {
+                        s.model = model.trim().to_string();
+                    }
+                    let _ = s.save(&dir);
+                }
+                s
             },
+            ai_cfg: ai::Cfg::default(),
+            ai_setup: None,
             ai_words: state.ai_words.unwrap_or(ai::DEFAULT_WORDS),
             x11_window: None,
             #[cfg(windows)]
@@ -1665,6 +1699,12 @@ impl NoteCraft {
             want_x11: None,
             keylayout_at: Some(Instant::now()),
         };
+        // The connection the workers use, resolved once from ai.json (key included, from its
+        // variable if one is named). `refresh_ai_cfg` keeps these two in step afterwards.
+        app.ai_cfg = app.ai_settings.to_cfg();
+        if ai_setup {
+            app.open_ai_setup();
+        }
         // The note face is a process-wide switch read while a note is laid out: set it from the saved
         // state before the first frame, not only when the Display menu is used.
         theme::set_note_font(app.note_font);
@@ -9489,7 +9529,7 @@ impl NoteCraft {
     /// The AI menu in the ribbon, beside Export and Display.
     fn ai_menu(&mut self, ui: &mut egui::Ui, t: &Theme) {
         let busy = self.ai_job.is_some();
-        let model = self.ai_cfg.model.clone();
+        let cfg = self.ai_cfg.clone();
         ui.add_enabled_ui(!busy, |ui| {
             if ui.button("Format this page   Ctrl+Shift+F").clicked() {
                 let ctx = ui.ctx().clone();
@@ -9501,18 +9541,52 @@ impl NoteCraft {
                 ui.close();
             }
         });
+        if ui.button("Model settings…").clicked() {
+            self.open_ai_setup();
+            ui.close();
+        }
         ui.separator();
-        let line = if busy {
-            "working — the page stays editable".to_string()
+        let (line, colour) = if busy {
+            ("working — the page stays editable".to_string(), t.faint)
+        } else if cfg.model.trim().is_empty()
+            || (cfg.provider.needs_key(&cfg.url) && cfg.key.is_empty())
+        {
+            (
+                "no model configured — open Model settings…".to_string(),
+                t.accent,
+            )
         } else {
-            format!("model  {model}")
+            (
+                format!("{}  ·  {}", cfg.provider.label(), cfg.model),
+                t.faint,
+            )
         };
         ui.label(
             RichText::new(line)
                 .family(theme::fam(theme::F_MONO))
                 .size(10.5)
-                .color(t.faint),
+                .color(colour),
         );
+    }
+
+    fn refresh_ai_cfg(&mut self) {
+        self.ai_cfg = self.ai_settings.to_cfg();
+    }
+
+    /// Open the connection window with what is saved, so the fields are a starting point rather
+    /// than a blank form.
+    fn open_ai_setup(&mut self) {
+        let s = self.ai_settings.clone();
+        self.ai_setup = Some(AiSetup {
+            provider: s.provider,
+            url: s.url,
+            model: s.model,
+            key: s.key,
+            key_env: s.key_env,
+            show_key: false,
+            testing: None,
+            verdict: None,
+        });
     }
 
     fn open_ai_dialog(&mut self) {
@@ -9686,6 +9760,297 @@ impl NoteCraft {
         }
     }
 
+    /// The *model settings* window: which shape to speak, where the server is, which model, and the
+    /// key — typed in, or named through an environment variable so nothing secret sits on disk.
+    ///
+    /// Nothing is written until **Save**: Cancel leaves `ai.json` exactly as it was, and *Test* runs
+    /// against the fields as typed (not against what is saved), so a wrong address is found before
+    /// it is committed.
+    fn ai_setup_window(&mut self, ctx: &egui::Context) {
+        let Some(mut d) = self.ai_setup.take() else {
+            return;
+        };
+        // an answer from the probe thread
+        if let Some(rx) = &d.testing {
+            match rx.try_recv() {
+                Ok(v) => {
+                    d.verdict = Some(v);
+                    d.testing = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    ctx.request_repaint_after(Duration::from_millis(120));
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    d.verdict = Some(Err("the test did not finish".to_string()));
+                    d.testing = None;
+                }
+            }
+        }
+        let t = self.theme;
+        let mut save = false;
+        let mut close = false;
+        let mut test = false;
+        let mut switched: Option<ai::Provider> = None;
+        let testing = d.testing.is_some();
+        let mut clear_key = false;
+        egui::Window::new("model settings")
+            .title_bar(false)
+            .resizable(false)
+            .collapsible(false)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .min_width(560.0)
+            .max_width(560.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(t.panel2)
+                    .stroke(Stroke::new(1.0_f32, t.border))
+                    .corner_radius(CornerRadius::same(14))
+                    .inner_margin(Margin::same(16)),
+            )
+            .show(ctx, |ui| {
+                ui.label(
+                    RichText::new("Model settings")
+                        .family(theme::fam(theme::F_SEMI))
+                        .size(15.0)
+                        .color(t.heading),
+                );
+                ui.label(
+                    RichText::new("the formatter and the summariser ask this server")
+                        .family(theme::fam(theme::F_REG))
+                        .size(11.0)
+                        .color(t.faint),
+                );
+                ui.add_space(10.0);
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("shape")
+                            .family(theme::fam(theme::F_REG))
+                            .size(12.5)
+                            .color(t.dim),
+                    );
+                    for p in [ai::Provider::Ollama, ai::Provider::OpenAi] {
+                        if theme::segment_button(ui, p.label(), d.provider == p, &t).clicked() {
+                            switched = Some(p);
+                        }
+                    }
+                });
+                ui.add_space(2.0);
+                ui.label(
+                    RichText::new(match d.provider {
+                        ai::Provider::Ollama => "Ollama speaks /api/chat — a local daemon, or ollama.com for hosted models",
+                        ai::Provider::OpenAi => "OpenAI-compatible speaks /v1/chat/completions — OpenAI, OpenRouter, Groq, LM Studio, llama.cpp server",
+                    })
+                    .family(theme::fam(theme::F_REG))
+                    .size(10.5)
+                    .color(t.faint),
+                );
+                ui.add_space(8.0);
+
+                egui::Grid::new("ai-settings-grid")
+                    .num_columns(2)
+                    .min_col_width(78.0)
+                    .spacing([12.0, 10.0])
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new("server")
+                                .family(theme::fam(theme::F_REG))
+                                .size(12.5)
+                                .color(t.dim),
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut d.url)
+                                .desired_width(380.0)
+                                .hint_text(d.provider.default_url())
+                                .font(egui::TextStyle::Monospace),
+                        );
+                        ui.end_row();
+
+                        ui.label(
+                            RichText::new("model")
+                                .family(theme::fam(theme::F_REG))
+                                .size(12.5)
+                                .color(t.dim),
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut d.model)
+                                .desired_width(380.0)
+                                .hint_text(d.provider.default_model())
+                                .font(egui::TextStyle::Monospace),
+                        );
+                        ui.end_row();
+
+                        ui.label(
+                            RichText::new("key")
+                                .family(theme::fam(theme::F_REG))
+                                .size(12.5)
+                                .color(t.dim),
+                        );
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut d.key)
+                                    .desired_width(300.0)
+                                    .password(!d.show_key)
+                                    .hint_text(if ai::is_local(&d.url) {
+                                        "not needed locally"
+                                    } else {
+                                        "needed for this server"
+                                    })
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                            ui.checkbox(&mut d.show_key, "show");
+                        });
+                        ui.end_row();
+
+                        ui.label(
+                            RichText::new("key from")
+                            .family(theme::fam(theme::F_REG))
+                            .size(12.5)
+                            .color(t.dim),
+                        );
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut d.key_env)
+                                    .desired_width(240.0)
+                                    .hint_text("OPENROUTER_API_KEY")
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                            ui.label(
+                                RichText::new("an environment variable, so no key is stored")
+                                    .family(theme::fam(theme::F_REG))
+                                    .size(10.5)
+                                    .color(t.faint),
+                            );
+                        });
+                        ui.end_row();
+                    });
+
+                if !ai::is_local(&d.url) {
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new("not on this machine: the page's words are sent to it")
+                            .family(theme::fam(theme::F_REG))
+                            .size(10.5)
+                            .color(t.warn),
+                    );
+                }
+
+                ui.add_space(8.0);
+                match &d.verdict {
+                    Some(Ok(said)) => {
+                        ui.label(
+                            RichText::new(format!("connected — the model answered \"{said}\""))
+                                .family(theme::fam(theme::F_REG))
+                                .size(11.5)
+                                .color(t.done),
+                        );
+                    }
+                    Some(Err(why)) => {
+                        ui.label(
+                            RichText::new(why.clone())
+                                .family(theme::fam(theme::F_REG))
+                                .size(11.5)
+                                .color(t.danger),
+                        );
+                    }
+                    None => {
+                        ui.label(
+                            RichText::new(if testing { "asking the model…" } else { "not tested yet" })
+                                .family(theme::fam(theme::F_REG))
+                                .size(10.5)
+                                .color(t.faint),
+                        );
+                    }
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    ui.add_enabled_ui(!testing, |ui| {
+                        if theme::toolbar_button(ui, "Test", false, &t).clicked() {
+                            test = true;
+                        }
+                        if theme::toolbar_button(ui, "Save", true, &t).clicked() {
+                            save = true;
+                        }
+                    });
+                    if theme::toolbar_button(ui, "Cancel", false, &t).clicked() {
+                        close = true;
+                    }
+                    if !d.key.is_empty() {
+                        if theme::toolbar_button(ui, "Forget key", false, &t).clicked() {
+                            clear_key = true;
+                        }
+                    }
+                });
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    close = true;
+                }
+            });
+        // A shape switch brings its own defaults with it, but never overwrites an address the user
+        // has typed: only an empty field, or the other shape's default, is replaced.
+        if let Some(p) = switched {
+            let was_default = d.url.trim().is_empty()
+                || d.url.trim().trim_end_matches('/') == d.provider.default_url();
+            let model_was_default = d.model.trim().is_empty()
+                || d.model.trim() == d.provider.default_model();
+            d.provider = p;
+            if was_default {
+                d.url = p.default_url().to_string();
+            }
+            if model_was_default {
+                d.model = p.default_model().to_string();
+            }
+            d.verdict = None;
+        }
+        if clear_key {
+            d.key.clear();
+            d.key_env.clear();
+            d.verdict = None;
+        }
+        if test {
+            let cfg = ai::Settings {
+                provider: d.provider,
+                url: d.url.clone(),
+                model: d.model.clone(),
+                key: d.key.clone(),
+                key_env: d.key_env.clone(),
+                num_ctx: self.ai_settings.num_ctx,
+            }
+            .to_cfg();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let repaint = ctx.clone();
+            d.verdict = None;
+            d.testing = Some(rx);
+            std::thread::spawn(move || {
+                let _ = tx.send(ai::probe(&cfg));
+                repaint.request_repaint();
+            });
+        }
+        if save {
+            self.ai_settings = ai::Settings {
+                provider: d.provider,
+                url: d.url.trim().to_string(),
+                model: d.model.trim().to_string(),
+                key: d.key.trim().to_string(),
+                key_env: d.key_env.trim().to_string(),
+                num_ctx: self.ai_settings.num_ctx,
+            };
+            match self.ai_settings.save(&config_dir()) {
+                Ok(()) => {
+                    self.refresh_ai_cfg();
+                    self.flash(format!("model settings saved — {}", self.ai_cfg.model));
+                }
+                Err(e) => self.flash(format!("could not save the model settings: {e}")),
+            }
+            self.ai_setup = None;
+            return;
+        }
+        if close {
+            self.ai_setup = None;
+            return;
+        }
+        self.ai_setup = Some(d);
+    }
+
     /// The summariser's window: how long a summary, and which model.
     fn ai_window(&mut self, ctx: &egui::Context) {
         if self.ai_dialog.is_none() {
@@ -9781,8 +10146,10 @@ impl NoteCraft {
         if run {
             // 30 words is a sentence; 1500 is longer than most articles need
             let words = words.clamp(30, 1500);
-            if !model.is_empty() {
-                self.ai_cfg.model = model;
+            if !model.is_empty() && model != self.ai_settings.model {
+                self.ai_settings.model = model;
+                let _ = self.ai_settings.save(&config_dir());
+                self.refresh_ai_cfg();
             }
             self.ai_words = words;
             self.save_state_soon();
@@ -10101,6 +10468,7 @@ impl eframe::App for NoteCraft {
         self.due_picker(ctx);
         self.dialogs(ctx);
         self.ai_window(ctx);
+        self.ai_setup_window(ctx);
         self.trash_dialog(ctx);
         self.glyph_picker(ctx);
         self.palette(ctx);
@@ -11988,8 +12356,15 @@ struct FindState {
     pos: usize,
 }
 
+/// `~/.config/notecraft` (the platform's config dir): `state.json` and `ai.json` live here.
+fn config_dir() -> PathBuf {
+    directories::BaseDirs::new()
+        .map(|d| d.config_dir().join("notecraft"))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 fn state_path() -> Option<PathBuf> {
-    directories::BaseDirs::new().map(|d| d.config_dir().join("notecraft").join("state.json"))
+    Some(config_dir().join("state.json"))
 }
 
 fn load_state() -> State {
@@ -12029,8 +12404,10 @@ fn save_state(app: &NoteCraft) {
         note_font: Some(app.note_font.id().to_string()),
         spell: Some(app.spell.id().to_string()),
         spell_ignore: Some(app.spell_ignore.clone()),
-        ai_url: Some(app.ai_cfg.url.clone()),
-        ai_model: Some(app.ai_cfg.model.clone()),
+        // The endpoint and the model moved to ai.json (which can hold a key, so it is 0600).
+        // These two stay in the struct only so a state.json written by an older build still loads.
+        ai_url: None,
+        ai_model: None,
         ai_words: Some(app.ai_words),
         glyph_recent: Some(app.glyph_recent.iter().map(|c| c.to_string()).collect()),
     };
