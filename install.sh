@@ -65,15 +65,27 @@ SRC="$WORK/notecraft-$NUM-$ARCH-linux"
 mkdir -p "$PREFIX/bin" "$PREFIX/share/applications" \
          "$PREFIX/share/icons/hicolor/scalable/apps"
 install -m 755 "$SRC/notecraft" "$PREFIX/bin/notecraft"
-install -m 644 "$SRC/notecraft.desktop" "$PREFIX/share/applications/notecraft.desktop"
 install -m 644 "$SRC/notecraft.svg" "$PREFIX/share/icons/hicolor/scalable/apps/notecraft.svg"
 
-# Refresh the desktop database so the entry appears without a logout, where the tool exists.
+# The entry shipped in the tarball says Exec=notecraft / TryExec=notecraft, which the desktop can
+# only resolve when $PREFIX/bin happens to be on the session PATH. Plasma treats an entry whose
+# TryExec is not found as unavailable and hides it, so the app installs correctly and never shows
+# up in the launcher. Point both lines at the binary that was just installed.
+sed -e "s#^Exec=.*#Exec=\"$PREFIX/bin/notecraft\" %U#" \
+    -e "s#^TryExec=.*#TryExec=$PREFIX/bin/notecraft#" \
+    "$SRC/notecraft.desktop" > "$PREFIX/share/applications/notecraft.desktop"
+chmod 644 "$PREFIX/share/applications/notecraft.desktop"
+
+# Refresh the caches so the entry appears without a logout, where the tools exist. Plasma needs
+# its own cache rebuilt on top of the XDG desktop database.
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$PREFIX/share/applications" >/dev/null 2>&1 || true
 fi
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -qtf "$PREFIX/share/icons/hicolor" >/dev/null 2>&1 || true
+fi
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
 fi
 
 echo
