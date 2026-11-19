@@ -1,6 +1,6 @@
 [package]
 name = "notecraft"
-version = "1.3.0"
+version = "2.0.0"
 edition = "2024"
 rust-version = "1.90"
 description = "NoteCraft — a fast native notes, todos and idea-capture app. Plain markdown on disk."
@@ -31,6 +31,9 @@ rfd = "0.17"
 # when spelling is switched on. Already in the graph via `image`/`png`, so this costs nothing.
 flate2 = "1"
 ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
+# Added feature: *Check for updates…* verifies the released tarball against the
+# sha256 the release publishes before it replaces the running binary.
+sha2 = "0.10"
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 # Dragging a picture *out* of the app: winit only implements the XDND destination half, so the
@@ -49,7 +52,7 @@ windows-core = "0.59"
 raw-window-handle = "0.6"
 # AttachConsole, so the CLI verbs (`notecraft new "..."`) print into the terminal that started
 # them even though the binary is a windowed app (no console window on a double-click).
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 # The exe's icon, version resource and DPI-awareness manifest. Compiled on every host (a build

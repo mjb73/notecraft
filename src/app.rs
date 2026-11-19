@@ -56,6 +56,9 @@ const SEARCH_BOX_W: f32 = 232.0;
 /// The white margins either side of the text when a theme draws a page sheet: Word's document view,
 /// measured in its own proportions rather than as a border.
 const PAGE_PAD: f32 = 46.0;
+/// The reading measure of the note. 880 pt set a 15 pt body at ~95 characters a line — past the
+/// 65–75 a reader comfortably tracks — so the column stops at 760 and centres the slack instead.
+const NOTE_MEASURE: f32 = 760.0;
 /// Height of a picture's caption row. It is the height of `theme::icon_button` (30 pt), because the
 /// file name, the picture's resolution and those buttons share one centre line — a shorter row would
 /// leave the text floating above the buttons it sits next to.
@@ -70,6 +73,64 @@ enum View {
     Pages,
     Tasks,
     Tags,
+}
+
+/// How column two lists pages. `Hierarchy` is the old shape — a chapter list, then the pages of the
+/// ticked chapter. `Flat` is one list over the whole vault: every page, whichever notebook or chapter
+/// it lives in, sorted by name or date. Both are the *same* page list; the mode only changes what it
+/// enumerates, so clicking a row, the context menu and the search filter behave the same in each.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PageListMode {
+    Hierarchy,
+    Flat,
+}
+
+impl PageListMode {
+    fn id(self) -> &'static str {
+        match self {
+            PageListMode::Hierarchy => "hierarchy",
+            PageListMode::Flat => "flat",
+        }
+    }
+
+    /// An unknown or absent value is the default, and the default is the view that was there
+    /// before this choice existed.
+    fn from_id(s: Option<&str>) -> Self {
+        match s {
+            Some("flat") => PageListMode::Flat,
+            _ => PageListMode::Hierarchy,
+        }
+    }
+}
+
+/// What the flat page list is ordered by. Name is alphabetical (A–Z by default). Created and
+/// Changed are separate dates and separate choices: a page written once has the same value for both,
+/// but a note edited today keeps its old creation date, and "newest" means different rows under each.
+/// `page_sort_rev` flips whichever is chosen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PageSort {
+    Name,
+    Created,
+    Changed,
+}
+
+impl PageSort {
+    fn id(self) -> &'static str {
+        match self {
+            PageSort::Name => "name",
+            PageSort::Created => "created",
+            PageSort::Changed => "changed",
+        }
+    }
+
+    fn from_id(s: Option<&str>) -> Self {
+        match s {
+            Some("created") => PageSort::Created,
+            // `date` is what the first build with a flat list wrote; it meant last change.
+            Some("changed") | Some("date") => PageSort::Changed,
+            _ => PageSort::Name,
+        }
+    }
 }
 
 /// The note's text size, the app-wide step under every block's own size. Large is the default.
@@ -260,6 +321,14 @@ pub struct NoteCraft {
     /// window width. Remembered in state.json (`rail_open` / `pages_open`), defaulting to open.
     rail_open: bool,
     pages_open: bool,
+    /// Which shape column two draws, and how the flat list is ordered. Remembered in state.json so a
+    /// restart comes back to the view the user was working in.
+    page_list: PageListMode,
+    page_sort: PageSort,
+    page_sort_rev: bool,
+    /// The command ribbon can be folded down to its tab line while reading or typing, giving the
+    /// note 46 pt more height. Session-only: the next launch opens with the commands showing.
+    ribbon_open: bool,
     /// How pictures are drawn: centred in the note column, and with rounded corners. Both are
     /// display preferences (state.json), not properties of a page — the document stays portable.
     img_center: bool,
@@ -291,6 +360,9 @@ pub struct NoteCraft {
     /// Put the caret in the vault search field on the next frame (Ctrl+F).
     status: String,
     status_at: Option<Instant>,
+    /// Added feature: *Check for updates…* — whether a check or an install is running,
+    /// the release on offer, and the worker thread's reply channel.
+    update: crate::update::Update,
     last_focused: bool,
     drop_hover: bool,
     /// Where the pointer was while the file was over the window, in points, read from the X server —
@@ -560,47 +632,6 @@ struct PendingSnip {
 /// How long the window is given to leave the screen before the grab is taken
 /// (the compositor animates the hide), otherwise NoteCraft photographs itself.
 const SNIP_HIDE_SETTLE: Duration = Duration::from_millis(500);
-
-/// Our own window as KWin names it: only used to hand focus back after the crop overlay, and
-/// only on Linux. The grab itself no longer needs a window id — the app hides through egui's own
-/// `ViewportCommand::Visible`, which every backend implements.
-#[cfg(target_os = "linux")]
-fn own_window() -> Option<String> {
-    let out = std::process::Command::new("kdotool")
-        .args(["search", "--name", "NoteCraft"])
-        .output()
-        .ok()?;
-    String::from_utf8_lossy(&out.stdout)
-        .split_whitespace()
-        .next()
-        .map(|w| w.to_string())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn own_window() -> Option<String> {
-    None
-}
-
-/// Minimise (hide) or restore NoteCraft's window on Linux. KWin drives X11 clients and Wayland
-/// windows alike, so this works whichever backend the app is running on; on Windows and macOS
-/// nothing is hidden by a compositor tool and this is a no-op.
-#[cfg(target_os = "linux")]
-fn set_window_visible(window: &str, visible: bool) {
-    let cmd = if visible {
-        "windowactivate"
-    } else {
-        "windowminimize"
-    };
-    let _ = std::process::Command::new("kdotool")
-        .args([cmd, window])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-}
-
-#[cfg(not(target_os = "linux"))]
-fn set_window_visible(_window: &str, _visible: bool) {}
 
 /// Which kind of mark an annotation stroke is.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1576,6 +1607,10 @@ impl NoteCraft {
             read_mode_before_unreadable: None,
             rail_open: state.rail_open.unwrap_or(true),
             pages_open: state.pages_open.unwrap_or(true),
+            page_list: PageListMode::from_id(state.page_list.as_deref()),
+            page_sort: PageSort::from_id(state.page_sort.as_deref()),
+            page_sort_rev: state.page_sort_rev.unwrap_or(false),
+            ribbon_open: true,
             img_center: state.img_center.unwrap_or(false),
             img_rounded: state.img_rounded.unwrap_or(false),
             img_radius: CornerStep::from_id(state.img_radius.as_deref()),
@@ -1597,6 +1632,7 @@ impl NoteCraft {
             focus_title: false,
             status: String::new(),
             status_at: None,
+            update: crate::update::Update::default(),
             last_focused: true,
             drop_hover: false,
             drop_at: None,
@@ -2410,6 +2446,16 @@ impl NoteCraft {
             "Tasks view" => self.view = View::Tasks,
             "Tags view" => self.view = View::Tags,
             "Pages view" => self.view = View::Pages,
+            "Page list: chapters" => {
+                self.view = View::Pages;
+                self.pages_open = true;
+                self.page_list = PageListMode::Hierarchy;
+            }
+            "Page list: all pages" => {
+                self.view = View::Pages;
+                self.pages_open = true;
+                self.page_list = PageListMode::Flat;
+            }
             "Toggle read / edit" => self.read_mode = !self.read_mode,
             "Cycle theme" => self.cycle_theme(),
             "Reload vault" => {
@@ -2883,7 +2929,11 @@ impl NoteCraft {
                     .map(|b| {
                         !matches!(
                             b.kind,
-                            doc::Kind::Image | doc::Kind::Rule | doc::Kind::Code | doc::Kind::Table
+                            doc::Kind::Image
+                                | doc::Kind::File
+                                | doc::Kind::Rule
+                                | doc::Kind::Code
+                                | doc::Kind::Table
                         )
                     })
                     .unwrap_or(false);
@@ -3050,57 +3100,44 @@ impl NoteCraft {
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(theme::BAR_ITEM_GAP, 0.0);
-                    // The wordmark is painted into a fixed 24 pt box, not wrapped in a Frame: a
-                    // Frame's height comes from the text inside it, which made it 21 pt beside a
-                    // 24 pt search box and put the row's three baselines on three lines.
+                    // One wordmark lockup, not "NOTE" and a second "V2" chip competing for the same
+                    // 32 pt row: the name carries the version as a small superscript.
                     let mark_font = egui::FontId::new(theme::BAR_FONT, theme::fam(theme::F_BOLD));
-                    let g = ui.fonts_mut(|f| f.layout_no_wrap("NOTE".to_owned(), mark_font, t.accent));
-                    let (mark, _) = ui.allocate_exact_size(
-                        Vec2::new(g.size().x + 16.0, theme::BAR_CTRL_H),
+                    let name = ui.fonts_mut(|f| {
+                        f.layout_no_wrap("NoteCraft".to_owned(), mark_font, t.accent)
+                    });
+                    let v2_font = egui::FontId::new(9.0, theme::fam(theme::F_BOLD));
+                    let v2 = ui.fonts_mut(|f| {
+                        f.layout_no_wrap(" v2".to_owned(), v2_font, t.accent2)
+                    });
+                    let name_w = name.size().x;
+                    let mark_w = name_w + v2.size().x + 24.0;
+                    let (mark, mark_resp) = ui.allocate_exact_size(
+                        Vec2::new(mark_w, theme::BAR_CTRL_H),
                         Sense::hover(),
                     );
+                    mark_resp.on_hover_text("NoteCraft — notes, todos and ideas");
                     ui.painter().rect_filled(
                         mark,
                         CornerRadius::same(t.radius),
                         t.accent.gamma_multiply(0.18),
                     );
+                    let ink_y = |g: &std::sync::Arc<egui::Galley>| mark.center().y - g.size().y * 0.5;
                     ui.painter().galley(
-                        egui::Pos2::new(
-                            mark.center().x - g.size().x * 0.5,
-                            mark.center().y - g.size().y * 0.5,
-                        ),
-                        g,
+                        egui::Pos2::new(mark.min.x + 10.0, ink_y(&name)),
+                        name,
                         t.accent,
                     );
-                    ui.add_space(6.0);
-                    let crumb = match (&self.nb, &self.sec) {
-                        (Some(n), Some(s)) => format!("{n}  /  {s}"),
-                        (Some(n), None) => n.clone(),
-                        _ => "no notebook".into(),
-                    };
-                    // The breadcrumb is the widest and least essential thing in the row — it is also
-                    // in the window title — so it gets a slot measured against what the right-hand
-                    // end needs (the search box and the theme switch) and no slot at all when that
-                    // leaves nothing.
-                    let tail = SEARCH_BOX_W + theme::BAR_CTRL_H + 36.0;
-                    let room = (ui.available_width() - tail).max(0.0);
-                    let crumb_w =
-                        text_w(ui, &crumb, theme::BAR_FONT, false).min(room).min(320.0);
-                    if crumb_w > 40.0 {
-                        ui.add_sized(
-                            [crumb_w, theme::BAR_CTRL_H],
-                            egui::Label::new(
-                                RichText::new(crumb)
-                                    .family(theme::fam(theme::F_MED))
-                                    .size(theme::BAR_FONT)
-                                    .color(t.dim),
-                            )
-                            .truncate(),
-                        );
-                    }
+                    ui.painter().galley(
+                        egui::Pos2::new(mark.min.x + 10.0 + name_w + 2.0, ink_y(&v2)),
+                        v2,
+                        t.accent2,
+                    );
+                    // The breadcrumb that used to follow is gone: the same words are in the window
+                    // title and the window is already showing the selected notebook and chapter.
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing = Vec2::new(theme::BAR_ITEM_GAP, 0.0);
-                        if theme::icon_button_bar(ui, "◑", "cycle theme (Ctrl+Shift+T)", &t).clicked() {
+                        if theme::theme_swatch(ui, &t).clicked() {
                             self.cycle_theme();
                         }
                         if search_box(ui, &t).clicked() {
@@ -3113,7 +3150,11 @@ impl NoteCraft {
         // ---- row 2: the tab strip, ruled off from the ribbon content under it
         // ---- row 2: the tab line, then the commands that belong to the tab that is up
         egui::TopBottomPanel::top("ribbon")
-            .exact_height(theme::BAR_TABS_H + theme::BAR_CONTENT_H)
+            .exact_height(if self.ribbon_open {
+                theme::BAR_TABS_H + theme::BAR_CONTENT_H
+            } else {
+                theme::BAR_TABS_H
+            })
             .frame(
                 egui::Frame::new()
                     // a shade off the row above it, the same three strips in every theme
@@ -3160,6 +3201,14 @@ impl NoteCraft {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing = Vec2::new(theme::BAR_ITEM_GAP, 0.0);
+                        let (glyph, tip) = if self.ribbon_open {
+                            ("↑", "fold the ribbon away (more room for the note)")
+                        } else {
+                            ("↓", "show the ribbon")
+                        };
+                        if theme::icon_button_bar(ui, glyph, tip, &t).clicked() {
+                            self.ribbon_open = !self.ribbon_open;
+                        }
                         theme::ribbon_menu(ui, "Export", &t, false, |ui| {
                             if ui.button("HTML (single file)…").clicked() {
                                 export = Some(ExFmt::Html);
@@ -3189,6 +3238,9 @@ impl NoteCraft {
                 );
                 // The command row: the groups of the tab that is up. Search is not one of them — the
                 // palette does it (title row, Ctrl+K, Ctrl+F) and F3 walks the matches it lands on.
+                // Folded away, the tab line stays and this row (and its captions) give the note back
+                // their 46 pt.
+                if self.ribbon_open {
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(theme::BAR_ITEM_GAP, 0.0);
                     match self.view {
@@ -3217,7 +3269,7 @@ impl NoteCraft {
                             theme::group_rule(ui, &t);
                             theme::ribbon_group(ui, "insert", &t, |ui| {
                                 ui.horizontal(|ui| {
-                                    if theme::toolbar_icon_button(ui, theme::Icon::Attach, "Attach", false, &t).clicked() {
+                                    if theme::toolbar_icon_button(ui, theme::Icon::Attach, "Attach a picture or document", false, &t).clicked() {
                                         // handled after the panel: the chooser blocks
                                         attach_clicked = true;
                                     }
@@ -3418,6 +3470,7 @@ impl NoteCraft {
                         View::Tags => {}
                     }
                 });
+                }
             });
         if let Some(back) = find_step {
             self.find_next_in_page(back);
@@ -3553,6 +3606,28 @@ impl NoteCraft {
                     }
                 }
             });
+            ui.separator();
+            // Added feature: the manual update check. Nothing looks for a release on its
+            // own — this row is the only place that starts it — and while a check or an
+            // install is running the row says so and does nothing.
+            if self.update.busy() {
+                let words = if self.update.installing {
+                    "installing update…"
+                } else {
+                    "checking for updates…"
+                };
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(words)
+                        .family(theme::fam(theme::F_REG))
+                        .size(13.0)
+                        .color(t.faint),
+                );
+                ui.add_space(4.0);
+            } else if menu_action(ui, "Check for updates…", crate::update::VERSION, &t) {
+                self.update.start_check();
+                ui.close();
+            }
     }
 
 
@@ -3712,7 +3787,7 @@ impl NoteCraft {
             .exact_height(26.0)
             .frame(
                 egui::Frame::new()
-                    .fill(t.bg)
+                    .fill(t.panel)
                     .inner_margin(Margin::symmetric(14, 3)),
             )
             .show(ctx, |ui| {
@@ -3739,12 +3814,12 @@ impl NoteCraft {
                     ui.label(
                         RichText::new(&state_text)
                             .family(theme::fam(theme::F_MED))
-                            .size(11.0)
+                            .size(11.5)
                             .color(state_colour),
                     );
-                    used += seg_w(ui, &state_text, 11.0, false);
+                    used += seg_w(ui, &state_text, 11.5, false);
                     let words = format!("{} words", vault::count_words(&self.body));
-                    status_seg(ui, &words, true, 11.0, t.faint, &mut used, budget);
+                    status_seg(ui, &words, true, 11.5, t.dim, &mut used, budget);
                     let open = self
                         .vault
                         .pages
@@ -3756,8 +3831,8 @@ impl NoteCraft {
                         ui,
                         &format!("{open} open todos"),
                         true,
-                        11.0,
-                        t.faint,
+                        11.5,
+                        t.dim,
                         &mut used,
                         budget,
                     );
@@ -3775,8 +3850,8 @@ impl NoteCraft {
                                 ui,
                                 &format!("line {line} / {total} · {pct}%"),
                                 true,
-                                11.0,
-                                t.faint,
+                                11.5,
+                                t.dim,
                                 &mut used,
                                 budget,
                             );
@@ -3824,7 +3899,7 @@ impl NoteCraft {
                         ui.label(
                             RichText::new(format!("{backend} · "))
                                 .family(theme::fam(theme::F_MONO))
-                                .size(10.5)
+                                .size(11.0)
                                 .color(if crate::platform::backend_drags() { t.done } else { t.faint }),
                         )
                         .on_hover_text(crate::platform::backend_hint());
@@ -3841,7 +3916,7 @@ impl NoteCraft {
                             egui::Label::new(
                                 RichText::new(&clock)
                                     .family(theme::fam(theme::F_MONO))
-                                    .size(10.5)
+                                    .size(11.0)
                                     .color(t.dim),
                             )
                             .truncate(),
@@ -3855,13 +3930,13 @@ impl NoteCraft {
                         // chip itself jump. It is sized to its own text, never to the room left.
                         if !self.status.is_empty() {
                             let room = (ui.available_width() - 4.0).max(0.0);
-                            let w = seg_w(ui, &self.status, 11.0, false).min(room);
+                            let w = seg_w(ui, &self.status, 11.5, false).min(room);
                             ui.add_sized(
                                 [w, 16.0],
                                 egui::Label::new(
                                     RichText::new(self.status.clone())
                                         .family(theme::fam(theme::F_MED))
-                                        .size(11.0)
+                                        .size(11.5)
                                         .color(t.accent),
                                 )
                                 .truncate(),
@@ -3892,6 +3967,57 @@ impl NoteCraft {
                     .inner_margin(Margin::symmetric(8, 10)),
             )
             .show(ctx, |ui| {
+                // The foot of the rail: which vault is open and how much is in it. The space under
+                // the two lists was otherwise a dead void; reserved before the scroll area so it
+                // stays pinned to the bottom.
+                {
+                    let vault_name = self
+                        .vault
+                        .root
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("vault")
+                        .to_owned();
+                    let page_count = self.vault.pages.len();
+                    let nb_count = self.vault.notebooks.len();
+                    egui::TopBottomPanel::bottom("rail_footer")
+                        .frame(
+                            egui::Frame::new()
+                                .fill(t.panel)
+                                .inner_margin(Margin::symmetric(2, 6)),
+                        )
+                        .show_inside(ui, |ui| {
+                            let bar = ui.max_rect();
+                            ui.painter().hline(
+                                bar.x_range(),
+                                bar.top(),
+                                egui::Stroke::new(1.0_f32, t.border.gamma_multiply(0.6)),
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(vault_name)
+                                        .family(theme::fam(theme::F_MONO))
+                                        .size(10.5)
+                                        .color(t.dim),
+                                )
+                                .truncate(),
+                            )
+                            .on_hover_text(self.vault.root.display().to_string());
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!(
+                                        "{page_count} {} · {nb_count} {}",
+                                        if page_count == 1 { "page" } else { "pages" },
+                                        if nb_count == 1 { "notebook" } else { "notebooks" },
+                                    ))
+                                    .family(theme::fam(theme::F_MONO))
+                                    .size(10.0)
+                                    .color(t.faint),
+                                )
+                                .truncate(),
+                            );
+                        });
+                }
                 egui::ScrollArea::vertical()
                     .id_salt("rail_scroll")
                     .auto_shrink([false, false])
@@ -3928,6 +4054,7 @@ impl NoteCraft {
                                 selected,
                                 Some(pages.to_string()),
                                 0.0,
+                                theme::RailTier::Notebook,
                                 &t,
                             );
                             if row.clicked() {
@@ -3946,7 +4073,7 @@ impl NoteCraft {
                         }
                         // Directly under the last notebook, not pooled with the section actions at the
                         // foot of the rail: it acts on the list it follows.
-                        if theme::rail_row(ui, "+ Notebook", false, None, 0.0, &t).clicked() {
+                        if theme::rail_row(ui, "+ Notebook", false, None, 0.0, theme::RailTier::Action, &t).clicked() {
                             new_notebook = true;
                         }
                         ui.add_space(10.0);
@@ -3964,6 +4091,7 @@ impl NoteCraft {
                                     selected,
                                     Some(sec.pages.len().to_string()),
                                     8.0,
+                                    theme::RailTier::Chapter,
                                     &t,
                                 );
                                 if row.clicked() {
@@ -3994,7 +4122,7 @@ impl NoteCraft {
                             );
                         }
                         // ...and the chapter action under the foot of the chapter list it acts on.
-                        if theme::rail_row(ui, "+ Chapter", false, None, 8.0, &t).clicked() {
+                        if theme::rail_row(ui, "+ Chapter", false, None, 8.0, theme::RailTier::Action, &t).clicked() {
                             new_section = true;
                         }
                     });
@@ -4136,6 +4264,8 @@ impl NoteCraft {
         let mut pick_sec: Option<String> = None;
         let mut rename_sec: Option<String> = None;
         let mut kill_sec: Option<String> = None;
+        // A page row released over another row in the same chapter: (dragged, target, after).
+        let mut reorder_drop: Option<(PathBuf, PathBuf, bool)> = None;
 
         // The column is two lists, so it always has a chapter ticked: the live one, or the notebook's
         // first. Without that a fresh window listed the chapters and then no pages under them.
@@ -4199,10 +4329,36 @@ impl NoteCraft {
                         if ui.available_width() > view_w {
                             ui.set_max_width(view_w);
                         }
-                        // Two lists, the shape column one uses for notebooks and chapters: a small
-                        // heading, its rows, then the list one tier down under its own heading.
+                        // The two shapes of this column. The chips are the headings the panel used
+                        // to carry ("Chapters"), so the list below starts immediately — no second
+                        // title saying the same thing as the active chip.
                         ui.horizontal(|ui| {
-                            theme::section_label(ui, "Chapters", &t);
+                            let hierarchy = self.page_list == PageListMode::Hierarchy;
+                            if theme::chip_small(
+                                ui,
+                                "Chapters",
+                                if hierarchy { t.accent } else { t.faint },
+                                &t,
+                            )
+                            .on_hover_text("chapters, then the pages of the ticked one")
+                            .clicked()
+                            {
+                                self.page_list = PageListMode::Hierarchy;
+                                self.save_state_soon();
+                            }
+                            let flat = self.page_list == PageListMode::Flat;
+                            if theme::chip_small(
+                                ui,
+                                "All pages",
+                                if flat { t.accent } else { t.faint },
+                                &t,
+                            )
+                            .on_hover_text("every page in the vault, in one list")
+                            .clicked()
+                            {
+                                self.page_list = PageListMode::Flat;
+                                self.save_state_soon();
+                            }
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 if theme::icon_button(
                                     ui,
@@ -4216,6 +4372,7 @@ impl NoteCraft {
                                 }
                             });
                         });
+                        if self.page_list == PageListMode::Hierarchy {
                         if chapters.is_empty() {
                             ui.add_space(6.0);
                             let hint = if self.nb.is_some() {
@@ -4239,6 +4396,7 @@ impl NoteCraft {
                                 selected,
                                 Some(page_count.to_string()),
                                 0.0,
+                                theme::RailTier::Chapter,
                                 &t,
                             );
                             if row.clicked() {
@@ -4311,7 +4469,7 @@ impl NoteCraft {
                                         kind.to_string()
                                     };
                                     let resp = page_row(
-                                        ui, &p.title, &h.snippet, &badge, h.mark, selected, &t,
+                                        ui, &p.title, &h.snippet, &badge, "", h.mark, selected, &t,
                                     );
                                     if resp.clicked() {
                                         land = Some((p.path.clone(), h.needle.clone(), h.line));
@@ -4324,6 +4482,7 @@ impl NoteCraft {
                                         ui,
                                         &format!("{elsewhere} more outside this chapter"),
                                         "search the whole vault (Ctrl+K)",
+                                        "",
                                         "",
                                         None,
                                         false,
@@ -4339,9 +4498,43 @@ impl NoteCraft {
                                     let p = &self.vault.pages[*idx];
                                     let selected = self.page.as_deref() == Some(p.path.as_path());
                                     let meta = page_meta_line(p);
-                                    let resp = page_row(ui, &p.title, &meta, "", None, selected, &t);
+                                    let resp = page_row(ui, &p.title, &meta, "", "", None, selected, &t);
                                     if resp.clicked() {
                                         open = Some(p.path.clone());
+                                    }
+                                    // Drag this row by any part of it. The payload is the page's
+                                    // path; an upper-half hover inserts before the target, a
+                                    // lower-half hover after, and the accent line is the insertion
+                                    // point rather than a border on the row.
+                                    resp.dnd_set_drag_payload(p.path.clone());
+                                    if let Some(payload) = resp.dnd_hover_payload::<PathBuf>() {
+                                        if payload.parent() == p.path.parent()
+                                            && payload.as_path() != p.path.as_path()
+                                        {
+                                            let after = ui.input(|i| {
+                                                i.pointer
+                                                    .hover_pos()
+                                                    .map(|pos| pos.y > resp.rect.center().y)
+                                                    .unwrap_or(false)
+                                            });
+                                            let y = if after {
+                                                resp.rect.max.y
+                                            } else {
+                                                resp.rect.min.y
+                                            };
+                                            ui.painter().hline(
+                                                resp.rect.x_range(),
+                                                y,
+                                                Stroke::new(2.0_f32, t.accent),
+                                            );
+                                            if resp.dnd_release_payload::<PathBuf>().is_some() {
+                                                reorder_drop = Some((
+                                                    payload.as_ref().clone(),
+                                                    p.path.clone(),
+                                                    after,
+                                                ));
+                                            }
+                                        }
                                     }
                                     resp.context_menu(|ui| {
                                         if ui.button("Rename").clicked() {
@@ -4415,10 +4608,226 @@ impl NoteCraft {
                             }
                             // the action sits under the foot of the list it acts on, like
                             // "+ Notebook" and "+ Chapter" in the rail
-                            if theme::rail_row(ui, "+ Page", false, None, 0.0, &t).clicked() {
+                            if theme::rail_row(ui, "+ Page", false, None, 0.0, theme::RailTier::Action, &t).clicked() {
                                 action = Some(("new", PathBuf::new()));
                             }
                         });
+                        } else {
+                            // One list over the whole vault. The filter still applies, but with no
+                            // chapter to scope it to every hit qualifies; sorting by relevance is
+                            // what a search wants, so the sort chips give way to the match count.
+                            if searching {
+                                let q = self.search.trim().to_owned();
+                                let n = all_hits.len();
+                                let line = match n {
+                                    0 => format!("“{q}” · no pages"),
+                                    n if n > SEARCH_ROWS => {
+                                        format!("“{q}” · {n} pages (showing {SEARCH_ROWS})")
+                                    }
+                                    n => {
+                                        format!("“{q}” · {n} page{}", if n == 1 { "" } else { "s" })
+                                    }
+                                };
+                                ui.horizontal(|ui| {
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(line)
+                                                .family(theme::fam(theme::F_REG))
+                                                .size(11.5)
+                                                .color(t.faint),
+                                        )
+                                        .truncate(),
+                                    );
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            if theme::chip_small(ui, "×", t.faint, &t)
+                                                .on_hover_text("clear the filter")
+                                                .clicked()
+                                            {
+                                                self.search.clear();
+                                            }
+                                        },
+                                    );
+                                });
+                            } else {
+                                // One row: the three sort keys and one direction chip. The chrome
+                                // face has no arrow glyphs ("Created ↓" drew a tofu box), so the
+                                // direction is a word — A–Z / Z–A, or Newest / Oldest for either
+                                // date.
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new("Sort")
+                                            .family(theme::fam(theme::F_MED))
+                                            .size(10.5)
+                                            .color(t.faint),
+                                    );
+                                    let pick = |ui: &mut egui::Ui,
+                                                label: &str,
+                                                sort: PageSort,
+                                                active: PageSort,
+                                                t: &Theme| {
+                                        theme::chip_small(
+                                            ui,
+                                            label,
+                                            if sort == active { t.accent } else { t.faint },
+                                            t,
+                                        )
+                                        .clicked()
+                                    };
+                                    if pick(ui, "Name", PageSort::Name, self.page_sort, &t) {
+                                        if self.page_sort != PageSort::Name {
+                                            self.page_sort = PageSort::Name;
+                                            self.page_sort_rev = false;
+                                            self.save_state_soon();
+                                        }
+                                    }
+                                    if pick(ui, "Created", PageSort::Created, self.page_sort, &t) {
+                                        if self.page_sort != PageSort::Created {
+                                            self.page_sort = PageSort::Created;
+                                            self.page_sort_rev = false;
+                                            self.save_state_soon();
+                                        }
+                                    }
+                                    if pick(ui, "Changed", PageSort::Changed, self.page_sort, &t) {
+                                        if self.page_sort != PageSort::Changed {
+                                            self.page_sort = PageSort::Changed;
+                                            self.page_sort_rev = false;
+                                            self.save_state_soon();
+                                        }
+                                    }
+                                    let (dir_label, dir_tip) =
+                                        if self.page_sort == PageSort::Name {
+                                            (
+                                                if self.page_sort_rev { "Z–A" } else { "A–Z" },
+                                                "reverse the order",
+                                            )
+                                        } else if self.page_sort_rev {
+                                            ("Oldest", "oldest first — reverse the order")
+                                        } else {
+                                            ("Newest", "newest first — reverse the order")
+                                        };
+                                    if theme::chip_small(ui, dir_label, t.accent, &t)
+                                        .on_hover_text(dir_tip)
+                                        .clicked()
+                                    {
+                                        self.page_sort_rev = !self.page_sort_rev;
+                                        self.save_state_soon();
+                                    }
+                                });
+                            }
+                            ui.add_space(2.0);
+
+                            if searching {
+                                let hits: Vec<&vault::Hit> =
+                                    all_hits.iter().take(SEARCH_ROWS).collect();
+                                if hits.is_empty() {
+                                    ui.add_space(6.0);
+                                    ui.label(
+                                        RichText::new("No page matches this filter.")
+                                            .family(theme::fam(theme::F_REG))
+                                            .size(12.5)
+                                            .color(t.faint),
+                                    );
+                                }
+                                for h in &hits {
+                                    let p = &self.vault.pages[h.page];
+                                    let selected = self.page.as_deref() == Some(p.path.as_path());
+                                    let kind = match h.kind {
+                                        HitKind::Title => "title",
+                                        HitKind::Tag => "tag",
+                                        HitKind::Body => "body",
+                                    };
+                                    let badge = if h.count > 1 {
+                                        format!("{kind} · {} matches", h.count)
+                                    } else {
+                                        kind.to_string()
+                                    };
+                                    let meta = format!("{} / {}", p.notebook, p.section);
+                                    let resp = page_row(
+                                        ui, &p.title, &meta, &badge, "", h.mark, selected, &t,
+                                    );
+                                    if resp.clicked() {
+                                        land = Some((p.path.clone(), h.needle.clone(), h.line));
+                                    }
+                                    resp.on_hover_text("open this page at the match");
+                                }
+                            } else {
+                                let order =
+                                    flat_page_order(&self.vault, self.page_sort, self.page_sort_rev);
+                                if order.is_empty() {
+                                    ui.add_space(6.0);
+                                    ui.label(
+                                        RichText::new("No pages in this vault yet.\nCtrl+N creates one.")
+                                            .family(theme::fam(theme::F_REG))
+                                            .size(12.5)
+                                            .color(t.faint),
+                                    );
+                                }
+                                for idx in &order {
+                                    let p = &self.vault.pages[*idx];
+                                    let selected = self.page.as_deref() == Some(p.path.as_path());
+                                    let meta = format!("{} / {}", p.notebook, p.section);
+                                    let tail = page_date_line(p, self.page_sort);
+                                    let resp =
+                                        page_row(ui, &p.title, &meta, "", &tail, None, selected, &t);
+                                    if resp.clicked() {
+                                        open = Some(p.path.clone());
+                                    }
+                                    resp.context_menu(|ui| {
+                                        if ui.button("Rename").clicked() {
+                                            action = Some(("rename", p.path.clone()));
+                                            ui.close();
+                                        }
+                                        if ui.button("Duplicate").clicked() {
+                                            action = Some(("duplicate", p.path.clone()));
+                                            ui.close();
+                                        }
+                                        if ui.button("Delete").clicked() {
+                                            action = Some(("delete", p.path.clone()));
+                                            ui.close();
+                                        }
+                                        ui.menu_button("Move to…", |ui| {
+                                            ui.set_width(220.0);
+                                            let nbs = self.vault.notebooks.clone();
+                                            let from = p.path.parent().map(|d| d.to_path_buf());
+                                            for nb in nbs {
+                                                for sec in nb.sections {
+                                                    let in_here = from.as_deref()
+                                                        == Some(
+                                                            self.vault
+                                                                .root
+                                                                .join(vault::sanitize(&nb.name))
+                                                                .join(vault::sanitize(&sec.name))
+                                                                .as_path(),
+                                                        );
+                                                    let label =
+                                                        format!("{} / {}", nb.name, sec.name);
+                                                    if in_here {
+                                                        ui.label(
+                                                            RichText::new(format!("·  {label}"))
+                                                                .family(theme::fam(theme::F_REG))
+                                                                .size(12.5)
+                                                                .color(t.faint),
+                                                        );
+                                                    } else if ui.button(label).clicked() {
+                                                        move_page_to = Some((
+                                                            p.path.clone(),
+                                                            nb.name.clone(),
+                                                            sec.name.clone(),
+                                                        ));
+                                                        ui.close();
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    });
+                                }
+                            }
+                            if theme::rail_row(ui, "+ Page", false, None, 0.0, theme::RailTier::Action, &t).clicked() {
+                                action = Some(("new", PathBuf::new()));
+                            }
+                        }
                     });
             });
 
@@ -4554,16 +4963,23 @@ impl NoteCraft {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(t.bg).inner_margin(margin))
             .show(ctx, |ui| {
-                // The sheet is painted *before* the scroll area, so the note is written on the paper
-                // rather than over the whole window; the scroll area itself stays transparent.
-                if t.sheet && self.view == View::Pages && self.page.is_some() {
+                theme::paint_canvas(ui, ui.max_rect(), &t);
+                // The surface is painted *before* the scroll area, so the note is written on it
+                // rather than over the whole window; the scroll area itself stays transparent. A
+                // sheet theme draws Word's white page; the others get a softly lifted panel of the
+                // same geometry, so the note has an edge and depth instead of floating as bare text.
+                if self.view == View::Pages && self.page.is_some() {
                     let (x, page_w) = sheet_geo(ui.available_width());
                     let canvas = ui.max_rect();
                     let r = egui::Rect::from_min_size(
                         egui::Pos2::new(canvas.min.x + x, canvas.min.y + 5.0),
                         Vec2::new(page_w, (canvas.height() - 10.0).max(40.0)),
                     );
-                    theme::paint_page_sheet(ui, r, &t);
+                    if t.sheet {
+                        theme::paint_page_sheet(ui, r, &t);
+                    } else {
+                        theme::paint_note_surface(ui, r, &t);
+                    }
                 }
                 match self.view {
                     View::Pages => self.page_view(ui),
@@ -4666,6 +5082,7 @@ impl NoteCraft {
                 // was clipped away, which reads as "wordwrap is off".
                 let canvas = ui.available_width() - PAGE_SCROLLBAR_ALLOWANCE;
                 // When the canvas is wider than the measure, the column is *centred* in it. It used
+                // The canvas is wider than the measure, so the column is *centred* in it. It used
                 // to be pinned to the left edge, so with both side panels folded the note sat in the
                 // first 880 of a 1210 pt page with every bit of the slack stacked on the right — a
                 // writing app with the text shoved into a corner. The indent is a horizontal
@@ -4675,7 +5092,7 @@ impl NoteCraft {
                 // On a page sheet the column is the paper's text area and the inset is its left
                 // margin, both from `sheet_geo` — the same numbers the sheet itself was drawn with,
                 // so the words cannot drift off their own paper.
-                let column = canvas.min(880.0).max(240.0);
+                let column = canvas.min(NOTE_MEASURE).max(240.0);
                 let slack = (canvas - column).max(0.0);
                 let (column, inset) = if t.sheet {
                     let (x, page_w) = sheet_geo(ui.available_width());
@@ -4685,10 +5102,10 @@ impl NoteCraft {
                 } else {
                     (column, 0.0)
                 };
-                if t.sheet {
-                    // the paper's top margin: the title is written on the page, not on its edge
-                    ui.add_space(26.0);
-                }
+                // The note's own top margin in the full-bleed themes: the title sits under the
+                // ribbon with a little air, not flush against it. The sheet themes already have
+                // their paper margin below.
+                ui.add_space(if t.sheet { 26.0 } else { 20.0 });
                 ui.horizontal_top(|ui| {
                     ui.add_space(inset);
                     ui.vertical(|ui| {
@@ -5083,9 +5500,7 @@ impl NoteCraft {
 
     /// Hand focus back to the notes window after the overlay closes.
     fn focus_main_window(&self) {
-        if let Some(w) = own_window() {
-            set_window_visible(&w, true);
-        }
+        crate::platform::set_window_visible(&crate::platform::own_window(), true);
     }
 
     /// Open the annotator for the picture `reference` (the block is remembered in
@@ -5413,6 +5828,10 @@ impl NoteCraft {
         // suggestion to put there
         let mut fix_word: Option<(usize, std::ops::Range<usize>, String)> = None;
         let mut pic: Option<PicAction> = None;
+        // a link or attached document asked to be opened from the right-click menu
+        let mut open_link: Option<String> = None;
+        // an attachment card's Remove button: the block goes after the loop
+        let mut remove_block: Option<usize> = None;
         // a mark chosen from the right-click menu, and whether it asked for the picker
         let mut glyph_insert: Option<char> = None;
         let mut glyph_open = false;
@@ -5572,6 +5991,10 @@ impl NoteCraft {
 
         for i in 0..n {
             let kind = self.doc.blocks[i].kind;
+            // the gap above a heading belongs to the heading, not to the tail of the paragraph
+            if i > 0 {
+                ui.add_space(space_before(kind));
+            }
             // where this line starts on screen: the status bar counts lines from these, the rail
             // marks headings with them
             let line_top = ui.cursor().top();
@@ -5982,6 +6405,100 @@ impl NoteCraft {
                 block_rects.push((i, block_row(ui, line_top)));
                 continue;
             }
+            // ---------------- an attachment
+            if kind == doc::Kind::File {
+                let file = self.doc.blocks[i].file.clone();
+                let name = self.doc.blocks[i].text();
+                let abs = self
+                    .page
+                    .as_ref()
+                    .map(|p| vault::asset_path(p, &file))
+                    .unwrap_or_else(|| PathBuf::from(&file));
+                let meta = std::fs::metadata(&abs).ok();
+                let exists = meta.is_some();
+                let size = meta
+                    .map(|m| doc::human_size(m.len()))
+                    .unwrap_or_else(|| "missing".to_string());
+                let ext = Path::new(&file)
+                    .extension()
+                    .map(|e| e.to_string_lossy().to_uppercase())
+                    .unwrap_or_else(|| "FILE".to_string());
+                ui.horizontal(|ui| {
+                    ui.add_space(GUTTER - 10.0);
+                    egui::Frame::new()
+                        .fill(t.panel)
+                        .stroke(Stroke::new(
+                            1.0_f32,
+                            if exists { t.border } else { t.danger },
+                        ))
+                        .corner_radius(CornerRadius::same(8))
+                        .inner_margin(Margin::symmetric(10, 8))
+                        .show(ui, |ui| {
+                            ui.set_min_width((column_w - GUTTER - 22.0).max(160.0));
+                            ui.horizontal(|ui| {
+                                let (icon_rect, _) = ui
+                                    .allocate_exact_size(Vec2::splat(30.0), Sense::hover());
+                                theme::paint_icon(
+                                    ui.painter(),
+                                    icon_rect.shrink(7.0),
+                                    theme::Icon::Attach,
+                                    if exists { t.accent } else { t.danger },
+                                    t.accent2,
+                                );
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    let label = ui.add(
+                                        egui::Label::new(
+                                            RichText::new(&name)
+                                                .family(theme::fam(theme::F_SEMI))
+                                                .size(13.0)
+                                                .color(if exists { t.text } else { t.danger }),
+                                        )
+                                        .sense(Sense::click()),
+                                    );
+                                    if label.hovered() {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if label.clicked() {
+                                        open_link = Some(file.clone());
+                                    }
+                                    ui.label(
+                                        RichText::new(format!("{ext} · {size}"))
+                                            .family(theme::fam(theme::F_MONO))
+                                            .size(10.5)
+                                            .color(t.faint),
+                                    );
+                                });
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .button("Remove")
+                                            .on_hover_text(
+                                                "Remove the card from the page; the file stays in assets/",
+                                            )
+                                            .clicked()
+                                        {
+                                            remove_block = Some(i);
+                                        }
+                                        if ui
+                                            .add_enabled(exists, egui::Button::new("Open"))
+                                            .clicked()
+                                        {
+                                            open_link = Some(file.clone());
+                                        }
+                                    },
+                                );
+                            });
+                        });
+                });
+                if self.scroll_to_block == Some(i) {
+                    ui.scroll_to_rect(ui.min_rect(), Some(egui::Align::Center));
+                    self.scroll_to_block = None;
+                }
+                block_rects.push((i, block_row(ui, line_top)));
+                continue;
+            }
             // ---------------- a rule
             if kind == doc::Kind::Rule {
                 ui.horizontal(|ui| {
@@ -6182,7 +6699,10 @@ impl NoteCraft {
                         .and_then(|st| st.cursor.char_range())
                         .map(|r| r.primary.index == 0 && r.secondary.index == 0)
                         .unwrap_or(false);
-                    if at_start && ui.input(|inp| inp.key_pressed(egui::Key::Backspace)) {
+                    if at_start
+                        && joins_words(self.doc.blocks[i - 1].kind)
+                        && ui.input(|inp| inp.key_pressed(egui::Key::Backspace))
+                    {
                         join_block = Some(i);
                     }
                 }
@@ -6457,6 +6977,27 @@ impl NoteCraft {
                     // the popup was allowed (nearly the window) and the menu came out 900 pt wide with
                     // its labels in the left corner and its shortcuts in the right one.
                     ui.set_width(230.0);
+                    // A line that is only a link is an attachment: offer to open it before the
+                    // text commands, where the eye looks for it.
+                    if let Some(link) = self
+                        .doc
+                        .blocks
+                        .get(i)
+                        .and_then(|b| b.sole_link())
+                        .map(str::to_string)
+                    {
+                        if !link.starts_with("[[") {
+                            let web = link.starts_with("http://")
+                                || link.starts_with("https://")
+                                || link.starts_with("mailto:");
+                            let label = if web { "Open link" } else { "Open attachment" };
+                            if menu_action(ui, label, "", &t) {
+                                open_link = Some(link);
+                                ui.close();
+                            }
+                            ui.separator();
+                        }
+                    }
                     // Clipboard rows first: they act on the marking, so they are plain actions and
                     // get no checkbox (a tick would claim a state Copy does not have).
                     if menu_action(ui, "Copy", "Ctrl+C", &t) {
@@ -6626,7 +7167,7 @@ impl NoteCraft {
                     });
                     ui.separator();
                     ui.menu_button("Picture", |ui| {
-                        if ui.button("Attach a file…").clicked() {
+                        if ui.button("Attach a picture or document…").clicked() {
                             pic = Some(PicAction::Attach);
                             ui.close();
                         }
@@ -7292,6 +7833,17 @@ impl NoteCraft {
         }
         if let Some((i, reference)) = crop_open {
             self.open_crop(i, &reference);
+        }
+        if let Some(i) = remove_block {
+            if i < self.doc.blocks.len() {
+                self.snapshot();
+                self.doc.blocks.remove(i);
+                changed = true;
+                self.flash("attachment removed from the page");
+            }
+        }
+        if let Some(link) = open_link {
+            self.open_link(&link);
         }
         if let Some(action) = pic {
             match action {
@@ -8070,6 +8622,9 @@ impl NoteCraft {
             self.win_dnd_tried = true;
             if let Ok(handle) = frame.window_handle() {
                 if let RawWindowHandle::Win32(w) = handle.as_raw() {
+                    // The snip worker hides this window from its own thread, which needs the
+                    // handle and cannot ask eframe for it.
+                    crate::platform::note_own_window(w.hwnd.get() as isize);
                     let (tx, rx) = std::sync::mpsc::channel();
                     if crate::windows_dnd::install(w.hwnd.get() as isize, tx) {
                         self.win_dnd = Some(rx);
@@ -8255,24 +8810,42 @@ impl NoteCraft {
         ));
         let _ = std::fs::remove_file(&path);
         let (tx, rx) = std::sync::mpsc::channel();
-        // Hide through egui, not through the window manager: `ViewportCommand::Visible(false)`
-        // is implemented by every backend, and the `Context` is Send + Sync, so the worker can
-        // ask for the window back itself — a hidden, unpainted window cannot do that from the
-        // UI thread.
+        // Hiding is only safe when it can be undone: on Windows a hidden window stops receiving
+        // `WM_PAINT`, so eframe runs no further frames and a `ViewportCommand::Visible(true)`
+        // queued on the context is never applied — after a snip there the app stayed invisible
+        // for good. So on Windows the *worker* hides and restores through Win32 (it needs no
+        // frame to do it); elsewhere egui's own command is used, as before, and the platform
+        // call is only the restore.
+        let own = crate::platform::own_window();
+        let hide = own.can_hide();
+        let via_platform = own.hide_via_platform();
+        if !hide {
+            dnd_log("snip: no window handle to hide with — the grab includes NoteCraft");
+        }
         let ctx2 = ctx.clone();
         let path2 = path.clone();
         std::thread::spawn(move || {
+            if hide && via_platform {
+                crate::platform::set_window_visible(&own, false);
+            }
             std::thread::sleep(SNIP_HIDE_SETTLE);
             let result = crate::platform::capture_screen(&path2);
             if let Err(e) = &result {
                 dnd_log(&format!("snip: capture failed: {e}"));
+            }
+            if hide {
+                // Un-minimises on Linux, un-hides on Windows: the one restore that cannot be
+                // lost to a frame loop that has stopped.
+                crate::platform::set_window_visible(&own, true);
             }
             ctx2.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             ctx2.send_viewport_cmd(egui::ViewportCommand::Focus);
             ctx2.request_repaint();
             let _ = tx.send(result);
         });
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        if hide && !via_platform {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
         dnd_log("snip: window hidden, capture running");
         self.pending_snip = Some(PendingSnip {
             path,
@@ -8333,6 +8906,9 @@ impl NoteCraft {
         if p.started.elapsed() > Duration::from_secs(180) {
             let _ = std::fs::remove_file(&p.path);
             self.pending_snip = None;
+            // A capture that never came back must not leave the window hidden (the worker
+            // normally restores it, but a hung grabber never reaches that line).
+            crate::platform::set_window_visible(&crate::platform::own_window(), true);
             dnd_log("snip: cancelled");
             self.flash("snip cancelled");
         }
@@ -8345,6 +8921,52 @@ impl NoteCraft {
             return; // cancelled
         }
         self.attach_paths(&files, None);
+    }
+
+    /// Open a link written on a page: an attached document (opened with the desktop's own
+    /// application) or a web address (opened in the browser).
+    fn open_link(&mut self, link: &str) {
+        if link.starts_with("[[") {
+            self.flash("wiki links have no page to open yet");
+            return;
+        }
+        if link.starts_with("http://")
+            || link.starts_with("https://")
+            || link.starts_with("mailto:")
+        {
+            self.flash(if crate::platform::open_url(link) {
+                "opened in your browser"
+            } else {
+                "could not open the link"
+            });
+            return;
+        }
+        let Some(page) = self.page.clone() else {
+            self.flash("open a page first");
+            return;
+        };
+        // The destination in a page is percent-encoded (`report%20final.pdf`), while the file on
+        // disk carries the real characters.
+        let decoded = attach::percent_decode(link);
+        let p = Path::new(&decoded);
+        let path = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            vault::asset_path(&page, &decoded)
+        };
+        if !path.exists() {
+            self.flash(format!("attachment is missing: {}", path.display()));
+            return;
+        }
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.display().to_string());
+        self.flash(if crate::platform::open_path(&path) {
+            format!("opened {name}")
+        } else {
+            format!("no application would open {name}")
+        });
     }
 
     /// Read mode: the **document** rendered — the same blocks, kinds, runs and properties the editor
@@ -8360,11 +8982,18 @@ impl NoteCraft {
         let column_w = ui.available_width();
         let page = self.page.clone();
         let mut toggles: Vec<usize> = Vec::new();
+        // attachment lines clicked this frame: opened after the loop, so no dialog or process
+        // starts while the document is still being painted
+        let mut open_links: Vec<String> = Vec::new();
         let mut i = 0usize;
         let mut tops: Vec<f32> = Vec::with_capacity(self.doc.blocks.len());
         let mut heads: Vec<f32> = Vec::new();
         while i < self.doc.blocks.len() {
             let kind = self.doc.blocks[i].kind;
+            // same gap rules as the editor: read mode must not set the page differently
+            if i > 0 {
+                ui.add_space(space_before(kind));
+            }
             // same line map as the editor: blocks are lines, headings are the outline
             let line_top = ui.cursor().top();
             tops.push(line_top);
@@ -8373,6 +9002,89 @@ impl NoteCraft {
             }
             let size = block_size(kind) * self.note_text.scale();
             match kind {
+                doc::Kind::File => {
+                    let b = &self.doc.blocks[i];
+                    let file = b.file.clone();
+                    let name = b.text();
+                    let abs = page
+                        .as_ref()
+                        .map(|p| vault::asset_path(p, &file))
+                        .unwrap_or_else(|| PathBuf::from(&file));
+                    let meta = std::fs::metadata(&abs).ok();
+                    let exists = meta.is_some();
+                    let size_text = meta
+                        .map(|m| doc::human_size(m.len()))
+                        .unwrap_or_else(|| "missing".to_string());
+                    let ext = Path::new(&file)
+                        .extension()
+                        .map(|e| e.to_string_lossy().to_uppercase())
+                        .unwrap_or_else(|| "FILE".to_string());
+                    ui.horizontal(|ui| {
+                        ui.add_space(GUTTER - 10.0);
+                        egui::Frame::new()
+                            .fill(t.panel)
+                            .stroke(Stroke::new(
+                                1.0_f32,
+                                if exists { t.border } else { t.danger },
+                            ))
+                            .corner_radius(CornerRadius::same(8))
+                            .inner_margin(Margin::symmetric(10, 8))
+                            .show(ui, |ui| {
+                                ui.set_min_width((column_w - GUTTER - 22.0).max(160.0));
+                                ui.horizontal(|ui| {
+                                    let (icon_rect, _) = ui
+                                        .allocate_exact_size(Vec2::splat(30.0), Sense::hover());
+                                    theme::paint_icon(
+                                        ui.painter(),
+                                        icon_rect.shrink(7.0),
+                                        theme::Icon::Attach,
+                                        if exists { t.accent } else { t.danger },
+                                        t.accent2,
+                                    );
+                                    ui.vertical(|ui| {
+                                        ui.spacing_mut().item_spacing.y = 0.0;
+                                        let label = ui.add(
+                                            egui::Label::new(
+                                                RichText::new(&name)
+                                                    .family(theme::fam(theme::F_SEMI))
+                                                    .size(13.0)
+                                                    .color(if exists { t.text } else { t.danger }),
+                                            )
+                                            .sense(Sense::click()),
+                                        );
+                                        if exists {
+                                            let hit = label.on_hover_cursor(
+                                                egui::CursorIcon::PointingHand,
+                                            );
+                                            if hit.clicked() {
+                                                open_links.push(file.clone());
+                                            }
+                                        }
+                                        ui.label(
+                                            RichText::new(format!("{ext} · {size_text}"))
+                                                .family(theme::fam(theme::F_MONO))
+                                                .size(10.5)
+                                                .color(t.faint),
+                                        );
+                                    });
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            if ui
+                                                .add_enabled(
+                                                    exists,
+                                                    egui::Button::new("Open"),
+                                                )
+                                                .clicked()
+                                            {
+                                                open_links.push(file.clone());
+                                            }
+                                        },
+                                    );
+                                });
+                            });
+                    });
+                }
                 doc::Kind::Rule => {
                     let (r, _) =
                         ui.allocate_exact_size(Vec2::new(ui.available_width(), 9.0), Sense::hover());
@@ -8523,9 +9235,34 @@ impl NoteCraft {
                     let text = self.doc.blocks[i].text();
                     let runs = self.doc.blocks[i].runs.clone();
                     let done = self.doc.blocks[i].done;
+                    // A line that is nothing but a link is an attachment. Read mode can make the
+                    // whole line a target: the editor cannot, because a click there is a caret.
+                    let link = self
+                        .doc
+                        .blocks[i]
+                        .sole_link()
+                        .filter(|l| !l.starts_with("[["))
+                        .map(str::to_string);
+                    let attachment = link.as_deref().is_some_and(|l| {
+                        !l.starts_with("http://")
+                            && !l.starts_with("https://")
+                            && !l.starts_with("mailto:")
+                    });
                     ui.horizontal_top(|ui| {
-                        ui.allocate_exact_size(Vec2::new(GUTTER - 10.0, 20.0), Sense::hover());
+                        let (gutter, _) =
+                            ui.allocate_exact_size(Vec2::new(GUTTER - 10.0, 20.0), Sense::hover());
                         match kind {
+                            doc::Kind::Para if attachment => {
+                                // a paperclip where a bullet would sit, so an attachment reads as
+                                // one before the link style is noticed
+                                theme::paint_icon(
+                                    ui.painter(),
+                                    egui::Rect::from_center_size(gutter.center(), Vec2::splat(14.0)),
+                                    theme::Icon::Attach,
+                                    t.dim,
+                                    t.accent,
+                                );
+                            }
                             doc::Kind::Bullet => {
                                 ui.label(
                                     RichText::new("•")
@@ -8581,6 +9318,16 @@ impl NoteCraft {
                                 t.bg,
                             );
                         }
+                        // An attachment (or a lone web link) opens on a click. Words around a
+                        // link are not a target: `sole_link` has already said no.
+                        if let Some(link) = &link {
+                            let hit = resp
+                                .interact(Sense::click())
+                                .on_hover_cursor(egui::CursorIcon::PointingHand);
+                            if hit.clicked() {
+                                open_links.push(link.clone());
+                            }
+                        }
                     });
                 }
             }
@@ -8589,6 +9336,9 @@ impl NoteCraft {
         }
         self.block_tops = tops;
         self.heading_tops = heads;
+        for link in open_links {
+            self.open_link(&link);
+        }
         // same rule in read mode: an attachment appended at the end of the page is brought into view
         if std::mem::take(&mut self.scroll_to_bottom) {
             ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
@@ -8685,7 +9435,12 @@ impl NoteCraft {
                     shown += items.len();
                     let color = if *title == "Overdue" { t.danger } else { t.faint };
                     ui.horizontal(|ui| {
-                        theme::section_label(ui, title, &theme::Theme { faint: color, ..t });
+                        ui.label(
+                            RichText::new(*title)
+                                .family(theme::fam(theme::F_MED))
+                                .size(11.5)
+                                .color(color),
+                        );
                         ui.label(
                             RichText::new(items.len().to_string())
                                 .family(theme::fam(theme::F_MONO))
@@ -10162,6 +10917,153 @@ impl NoteCraft {
         }
     }
 
+    /// Added feature: *Check for updates…*. Three faces and one window: the offer with the
+    /// release notes, the wait while the download is checked and put in place, and the failure
+    /// with its reason. It only ever appears after the menu row was picked — the app looks for
+    /// nothing by itself.
+    fn update_dialog(&mut self, ctx: &egui::Context) {
+        let t = self.theme;
+        let frame = egui::Frame::new()
+            .fill(t.panel2)
+            .stroke(Stroke::new(1.0_f32, t.border))
+            .corner_radius(CornerRadius::same(14))
+            .inner_margin(Margin::same(14));
+        if self.update.installing {
+            let version = self
+                .update
+                .release
+                .as_ref()
+                .map(|r| r.version.clone())
+                .unwrap_or_default();
+            egui::Window::new("updating")
+                .title_bar(false)
+                .resizable(false)
+                .collapsible(false)
+                .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+                .min_width(430.0)
+                .max_width(430.0)
+                .frame(frame)
+                .show(ctx, |ui| {
+                    ui.label(
+                        RichText::new(format!("Installing NoteCraft {version}…"))
+                            .size(15.0)
+                            .color(t.heading),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(
+                            "The download is checked against the release's sha256 before anything \
+                             is replaced. The window restarts on the new build once it is in \
+                             place; the open note and the state are saved first.",
+                        )
+                        .size(11.5)
+                        .color(t.faint),
+                    );
+                });
+            return;
+        }
+        if let Some(release) = self.update.release.clone() {
+            let mut later = false;
+            let mut install = false;
+            egui::Window::new("update")
+                .title_bar(false)
+                .resizable(false)
+                .collapsible(false)
+                .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+                .min_width(470.0)
+                .max_width(470.0)
+                .frame(frame)
+                .show(ctx, |ui| {
+                    ui.label(
+                        RichText::new(format!("NoteCraft {} is available", release.version))
+                            .size(15.0)
+                            .color(t.heading),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!(
+                            "You have {}. The newer build is {} for {}.",
+                            crate::update::VERSION,
+                            release.version,
+                            std::env::consts::ARCH
+                        ))
+                        .size(12.0)
+                        .color(t.text),
+                    );
+                    ui.add_space(8.0);
+                    if !release.notes.trim().is_empty() {
+                        egui::ScrollArea::vertical()
+                            .max_height(240.0)
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(release.notes.trim()).size(11.5).color(t.faint),
+                                );
+                            });
+                        ui.add_space(8.0);
+                    }
+                    ui.label(
+                        RichText::new(format!(
+                            "The file is {}, checked against the release's sha256 before this one \
+                             is replaced.",
+                            release.tarball
+                        ))
+                        .size(10.5)
+                        .color(t.faint),
+                    );
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if theme::toolbar_button(ui, "Later", false, &t).clicked() {
+                            later = true;
+                        }
+                        if theme::toolbar_button(ui, "Install and restart", true, &t).clicked() {
+                            install = true;
+                        }
+                    });
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        later = true;
+                    }
+                });
+            if later {
+                self.update.dismiss();
+            }
+            if install {
+                self.update.start_install();
+            }
+            return;
+        }
+        if let Some(error) = self.update.error.clone() {
+            let mut close = false;
+            egui::Window::new("check for updates")
+                .title_bar(false)
+                .resizable(false)
+                .collapsible(false)
+                .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+                .min_width(440.0)
+                .max_width(440.0)
+                .frame(frame)
+                .show(ctx, |ui| {
+                    ui.label(
+                        RichText::new("Check for updates")
+                            .size(15.0)
+                            .color(t.heading),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(error).size(12.0).color(t.text));
+                    ui.add_space(10.0);
+                    if theme::toolbar_button(ui, "Close", true, &t).clicked() {
+                        close = true;
+                    }
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        close = true;
+                    }
+                });
+            if close {
+                self.update.dismiss();
+            }
+        }
+    }
+
     fn dialogs(&mut self, ctx: &egui::Context) {
         let t = self.theme;
         // rename: a page's title, a notebook, or a section
@@ -10396,6 +11298,26 @@ impl NoteCraft {
 
 impl eframe::App for NoteCraft {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Added feature: *Check for updates…* — the worker thread's answer lands here. The
+        // check and the download run off the UI thread, so the window keeps drawing while
+        // they do.
+        match self.update.poll() {
+            crate::update::Poll::Idle => {}
+            crate::update::Poll::Say(words) => self.flash(words),
+            crate::update::Poll::Restart(exe) => {
+                // The new build is on disk: write the note and the state, then start it and
+                // close this window. The save comes first so the new process opens the note
+                // as it stands, not as it was at the last autosave.
+                if self.dirty {
+                    self.save();
+                }
+                save_state(self);
+                match crate::update::restart(&exe) {
+                    Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                    Err(e) => self.flash(format!("Updated, but the restart failed: {e}")),
+                }
+            }
+        }
         // Pictures first: collect the decodes that finished since the last frame and drop textures
         // over budget, so the rest of the frame only ever reads sizes and draws what is ready.
         self.image_cache.begin_frame(ctx);
@@ -10467,11 +11389,21 @@ impl eframe::App for NoteCraft {
         self.central(ctx);
         self.due_picker(ctx);
         self.dialogs(ctx);
+        self.update_dialog(ctx);
         self.ai_window(ctx);
         self.ai_setup_window(ctx);
         self.trash_dialog(ctx);
         self.glyph_picker(ctx);
         self.palette(ctx);
+        // A finished check or download is only noticed on a frame, and the window otherwise
+        // sleeps until the next input: while a job is running, ask for the next frame so the
+        // reply is picked up within a tenth of a second. This sits at the end of the frame on
+        // purpose — the click that starts an install is handled by the dialog drawn after the
+        // poll, so a request made up there missed exactly that click and the window slept with
+        // the install finished and unread.
+        if self.update.busy() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(150));
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -10497,7 +11429,7 @@ const PAGE_SCROLLBAR_ALLOWANCE: f32 = 22.0;
 /// text measure is the same 880 pt the full-bleed canvas uses, capped so the paper always keeps its
 /// margins inside the window.
 fn sheet_geo(width: f32) -> (f32, f32) {
-    let text = (width - PAGE_SCROLLBAR_ALLOWANCE).min(880.0).max(240.0);
+    let text = (width - PAGE_SCROLLBAR_ALLOWANCE).min(NOTE_MEASURE).max(240.0);
     let page_w = (text + PAGE_PAD * 2.0).min((width - 8.0).max(160.0));
     ((width - page_w) * 0.5, page_w)
 }
@@ -10930,12 +11862,25 @@ fn block_size(kind: doc::Kind) -> f32 {
 /// lines stay tight so a fence reads as one block.
 fn space_after(kind: doc::Kind) -> f32 {
     match kind {
-        doc::Kind::Heading(1) => 10.0,
-        doc::Kind::Heading(_) => 8.0,
+        doc::Kind::Heading(1) => 12.0,
+        doc::Kind::Heading(_) => 9.0,
         doc::Kind::Rule => 4.0,
         doc::Kind::Table => 10.0,
+        doc::Kind::File => 4.0,
         doc::Kind::Code => 0.5,
         _ => 2.5,
+    }
+}
+
+/// Space *before* a block. Only headings get any: the gap above a heading is what separates it from
+/// the paragraph before it, and the old layout left that gap to the previous block's 2.5 pt tail, so
+/// a heading sat on top of its own body copy.
+fn space_before(kind: doc::Kind) -> f32 {
+    match kind {
+        doc::Kind::Heading(1) => 16.0,
+        doc::Kind::Heading(_) => 10.0,
+        doc::Kind::File => 4.0,
+        _ => 0.0,
     }
 }
 
@@ -11931,7 +12876,7 @@ fn search_box(ui: &mut egui::Ui, t: &Theme) -> egui::Response {
     let (rect, resp) =
         ui.allocate_exact_size(Vec2::new(SEARCH_BOX_W, theme::BAR_CTRL_H), Sense::click());
     let p = ui.painter();
-    let r = CornerRadius::same(t.radius + 2);
+    let r = CornerRadius::same(t.radius + 3);
     p.rect_filled(rect, r, t.card);
     let edge = if resp.hovered() {
         t.accent.gamma_multiply(0.65)
@@ -11983,6 +12928,94 @@ fn page_meta_line(p: &Page) -> String {
         .or(p.updated)
         .map(|d| d.format("%d %b %Y").to_string())
         .unwrap_or_default()
+}
+
+/// The date a flat row shows. It follows the active sort, so when the list says "Created" every row
+/// carries the creation date and when it says "Changed" every row carries the last write — the two
+/// can differ by months on a note that was edited long after it was made.
+fn page_date_line(p: &Page, sort: PageSort) -> String {
+    let date = match sort {
+        PageSort::Created => p.created,
+        PageSort::Changed => p.updated,
+        // Name says nothing about dates, so show the one that answers "what have I touched lately".
+        PageSort::Name => p.updated.or(p.created),
+    };
+    date.map(|d| d.format("%d %b %Y").to_string())
+        .unwrap_or_default()
+}
+
+/// The indices of every page in the vault, in the flat list's order.
+///
+/// Ties fall through to the notebook, then the chapter, then the path, so two pages with the same
+/// name (the ordinary case — every chapter has an "Untitled page") never swap places between frames
+/// and a click always lands where the row was.
+fn flat_page_order(vault: &Vault, sort: PageSort, reversed: bool) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..vault.pages.len()).collect();
+    order.sort_by(|&a, &b| {
+        let pa = &vault.pages[a];
+        let pb = &vault.pages[b];
+        let by_place = || {
+            pa.notebook
+                .to_lowercase()
+                .cmp(&pb.notebook.to_lowercase())
+                .then_with(|| pa.section.to_lowercase().cmp(&pb.section.to_lowercase()))
+                .then_with(|| pa.path.cmp(&pb.path))
+        };
+        match sort {
+            PageSort::Name => pa
+                .title
+                .to_lowercase()
+                .cmp(&pb.title.to_lowercase())
+                .then_with(by_place),
+            PageSort::Created | PageSort::Changed => {
+                // newest first; a page with no date at all sorts below every dated page
+                let da = match sort {
+                    PageSort::Created => pa.created,
+                    _ => pa.updated,
+                };
+                let db = match sort {
+                    PageSort::Created => pb.created,
+                    _ => pb.updated,
+                };
+                db.cmp(&da)
+                    .then_with(|| pa.title.to_lowercase().cmp(&pb.title.to_lowercase()))
+                    .then_with(by_place)
+            }
+        }
+    });
+    if reversed {
+        order.reverse();
+    }
+    order
+}
+
+/// Where a dragged page lands: remove it from `paths`, then insert it before or after `target`.
+///
+/// `paths` is the chapter's list in its on-screen order. Returning the same vector means the drop
+/// would not change anything — the page was dragged onto itself, or onto the neighbour on the side it
+/// already sits — and the caller can skip the file writes.
+fn page_drop_order(
+    paths: &[PathBuf],
+    dragged: &Path,
+    target: &Path,
+    after: bool,
+) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = paths.to_vec();
+    let Some(from) = out.iter().position(|p| p == dragged) else {
+        return out;
+    };
+    if out.iter().position(|p| p == target).is_none() {
+        return out;
+    }
+    out.remove(from);
+    // The target's index after the removal, not before it: dragging a page downwards would
+    // otherwise land one place short.
+    let Some(to) = out.iter().position(|p| p == target) else {
+        return out;
+    };
+    let at = if after { to + 1 } else { to };
+    out.insert(at.min(out.len()), dragged.to_path_buf());
+    out
 }
 
 /// The meta line of a row: plain faint words, with the matched term of a search result tinted, so the
@@ -12075,6 +13108,7 @@ fn page_row(
     title: &str,
     meta: &str,
     badge: &str,
+    tail: &str,
     mark: Option<(usize, usize)>,
     selected: bool,
     t: &Theme,
@@ -12100,21 +13134,40 @@ fn page_row(
         .as_ref()
         .map(|g| g.size().x + 12.0)
         .unwrap_or(0.0);
+    // A faint right-hand note on the meta line (the flat list's date). It is measured with the
+    // badge, because both sit there and neither may be painted over the other.
+    let tail_g = if tail.is_empty() {
+        None
+    } else {
+        Some(ui.fonts_mut(|f| {
+            f.layout_no_wrap(
+                tail.to_owned(),
+                FontId::new(10.0, theme::fam(theme::F_MONO)),
+                t.faint,
+            )
+        }))
+    };
+    let tail_w = tail_g
+        .as_ref()
+        .map(|g| g.size().x + 12.0)
+        .unwrap_or(0.0);
     let pad = 10.0;
     let title_color = if selected { t.heading } else { t.text };
     let title_g = title_galley(ui, title, title_color, width - pad * 2.0);
-    let meta_g = meta_galley(ui, meta, mark, width - pad * 2.0 - badge_w, t);
+    let meta_g = meta_galley(ui, meta, mark, width - pad * 2.0 - badge_w - tail_w, t);
     let title_h = title_g.size().y;
     let meta_h = meta_g.size().y;
     // The row is as tall as what it holds: one wrapped title is 48 pt, two are 67.
     let (rect, resp) = ui.allocate_exact_size(
         Vec2::new(width, 6.0 + title_h + 4.0 + meta_h + 6.0),
-        Sense::click(),
+        // Dragging must be a sense this widget has, or `dnd_set_drag_payload` never fires. A
+        // press that does not move is still a click, so opening a page is unchanged.
+        Sense::click_and_drag(),
     );
     {
         let p = ui.painter();
         if selected {
-            p.rect_filled(rect, CornerRadius::same(9), t.accent.gamma_multiply(0.15));
+            p.rect_filled(rect, CornerRadius::same(t.radius), t.selected_fill());
             p.rect_filled(
                 egui::Rect::from_min_size(
                     rect.min + Vec2::new(0.0, 7.0),
@@ -12124,7 +13177,7 @@ fn page_row(
                 t.accent,
             );
         } else if resp.hovered() {
-            p.rect_filled(rect, CornerRadius::same(9), t.card_hover);
+            p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
         }
     }
     let x = rect.min.x + pad;
@@ -12132,12 +13185,19 @@ fn page_row(
     let meta_top = title_top + title_h + 4.0;
     ui.painter().galley(egui::pos2(x, title_top), title_g, title_color);
     ui.painter().galley(egui::pos2(x, meta_top), meta_g, t.faint);
-    if let Some(g) = badge_g {
+    if let Some(g) = &badge_g {
         let at = egui::pos2(
             rect.right() - g.size().x - 12.0,
             meta_top + (meta_h - g.size().y) * 0.5,
         );
-        ui.painter().galley(at, g, t.accent);
+        ui.painter().galley(at, g.clone(), t.accent);
+    }
+    if let Some(g) = tail_g {
+        let at = egui::pos2(
+            rect.right() - g.size().x - 12.0 - if badge_g.is_some() { badge_w } else { 0.0 },
+            meta_top + (meta_h - g.size().y) * 0.5,
+        );
+        ui.painter().galley(at, g, t.faint);
     }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -12167,7 +13227,7 @@ fn tag_color(t: &Theme, tag: &str) -> Color32 {
 fn build_palette(vault: &Vault, query: &str) -> Vec<PalItem> {
     // The three tiers, top down: a notebook holds chapters, a chapter holds pages. The palette
     // lists its create commands in that order for the same reason the rail does.
-    const COMMANDS: [&str; 18] = [
+    const COMMANDS: [&str; 20] = [
         "New notebook",
         "New chapter",
         "New page",
@@ -12179,6 +13239,8 @@ fn build_palette(vault: &Vault, query: &str) -> Vec<PalItem> {
         "Tasks view",
         "Tags view",
         "Pages view",
+        "Page list: chapters",
+        "Page list: all pages",
         "Toggle read / edit",
         "Cycle theme",
         "Reload vault",
@@ -12310,6 +13372,14 @@ struct State {
     rail_open: Option<bool>,
     #[serde(default)]
     pages_open: Option<bool>,
+    /// Column two's shape (`hierarchy` / `flat`) and the flat list's order (`name` / `date`, plus
+    /// whether it is reversed). Absent means the hierarchy, as every older state file expects.
+    #[serde(default)]
+    page_list: Option<String>,
+    #[serde(default)]
+    page_sort: Option<String>,
+    #[serde(default)]
+    page_sort_rev: Option<bool>,
     /// Picture display (centred / rounded) and the note's text size. Absent means the default,
     /// which for the text size is **large**.
     #[serde(default)]
@@ -12393,6 +13463,9 @@ fn save_state(app: &NoteCraft) {
         ),
         rail_open: Some(app.rail_open),
         pages_open: Some(app.pages_open),
+        page_list: Some(app.page_list.id().to_string()),
+        page_sort: Some(app.page_sort.id().to_string()),
+        page_sort_rev: Some(app.page_sort_rev),
         find: app.last_needle.as_ref().map(|n| FindState {
             needle: n.clone(),
             pos: app.find_pos,
@@ -12413,6 +13486,163 @@ fn save_state(app: &NoteCraft) {
     };
     if let Ok(s) = serde_json::to_string_pretty(&state) {
         let _ = std::fs::write(path, s);
+    }
+}
+
+#[cfg(test)]
+mod tests_page_list {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn page(nb: &str, sec: &str, title: &str, hours: Option<i64>) -> Page {
+        page_dates(nb, sec, title, hours, hours)
+    }
+
+    fn page_dates(
+        nb: &str,
+        sec: &str,
+        title: &str,
+        created: Option<i64>,
+        updated: Option<i64>,
+    ) -> Page {
+        let at = |h: Option<i64>| {
+            h.map(|h| {
+                chrono::Local.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()
+                    + chrono::Duration::hours(h)
+            })
+        };
+        Page {
+            path: PathBuf::from(format!("/v/{nb}/{sec}/{title}.md")),
+            notebook: nb.to_string(),
+            section: sec.to_string(),
+            title: title.to_string(),
+            body: String::new(),
+            order: 0.0,
+            created: at(created),
+            updated: at(updated),
+            tags: Vec::new(),
+            todos: Vec::new(),
+            unreadable: false,
+        }
+    }
+
+    fn vault(pages: Vec<Page>) -> Vault {
+        Vault {
+            root: PathBuf::from("/v"),
+            pages,
+            notebooks: Vec::new(),
+            generation: 0,
+        }
+    }
+
+    fn titles(v: &Vault, order: &[usize]) -> Vec<String> {
+        order.iter().map(|i| v.pages[*i].title.clone()).collect()
+    }
+
+    /// The flat list spans notebooks and chapters, and Name is case-insensitive A–Z; reversing the
+    /// sort reverses the whole list rather than only the pages inside one chapter.
+    #[test]
+    fn the_flat_list_sorts_by_name_across_the_whole_vault() {
+        let v = vault(vec![
+            page("Work", "Plans", "budget", None),
+            page("Personal", "Notes", "Alpha", None),
+            page("Work", "Plans", "CharliE", None),
+        ]);
+        let order = flat_page_order(&v, PageSort::Name, false);
+        assert_eq!(titles(&v, &order), vec!["Alpha", "budget", "CharliE"]);
+        let order = flat_page_order(&v, PageSort::Name, true);
+        assert_eq!(titles(&v, &order), vec!["CharliE", "budget", "Alpha"]);
+    }
+
+    /// Creation and last change are two separate sorts. An old page edited today is *new* under
+    /// Changed and *old* under Created; the two orders must differ, not quietly share one date.
+    #[test]
+    fn created_and_changed_sort_independently() {
+        let v = vault(vec![
+            // made early, edited last
+            page_dates("Work", "Plans", "edited lately", Some(1), Some(100)),
+            // made and left alone
+            page_dates("Personal", "Notes", "old untouched", Some(2), Some(2)),
+            // made recently, never edited
+            page_dates("Personal", "Notes", "made recently", Some(90), Some(90)),
+            page_dates("Inbox", "Notes", "undated", None, None),
+        ]);
+
+        let created = flat_page_order(&v, PageSort::Created, false);
+        assert_eq!(
+            titles(&v, &created),
+            vec!["made recently", "old untouched", "edited lately", "undated"]
+        );
+        let changed = flat_page_order(&v, PageSort::Changed, false);
+        assert_eq!(
+            titles(&v, &changed),
+            vec!["edited lately", "made recently", "old untouched", "undated"]
+        );
+
+        // reversing each one turns that whole list around
+        let created = flat_page_order(&v, PageSort::Created, true);
+        assert_eq!(
+            titles(&v, &created),
+            vec!["undated", "edited lately", "old untouched", "made recently"]
+        );
+        let changed = flat_page_order(&v, PageSort::Changed, true);
+        assert_eq!(
+            titles(&v, &changed),
+            vec!["undated", "old untouched", "made recently", "edited lately"]
+        );
+    }
+
+    /// The row shows the date it is sorted by, so "Created" never shows a last-change date and vice
+    /// versa; with no date in front matter the cell is empty rather than borrowing the other one.
+    #[test]
+    fn the_row_date_follows_the_active_sort() {
+        let p = page_dates("Work", "Plans", "mixed", Some(1), Some(100));
+        assert_eq!(page_date_line(&p, PageSort::Created), "01 Jan 2026");
+        assert_eq!(page_date_line(&p, PageSort::Changed), "05 Jan 2026");
+        let undated = page_dates("Work", "Plans", "none", None, None);
+        assert_eq!(page_date_line(&undated, PageSort::Created), "");
+        assert_eq!(page_date_line(&undated, PageSort::Changed), "");
+    }
+
+    /// Two pages with the same title are the ordinary case, so the tie must be stable: notebook,
+    /// then chapter, then path. Without it two rows swapped places every frame.
+    #[test]
+    fn same_titles_are_broken_by_place() {
+        let v = vault(vec![
+            page("Work", "Zeta", "Untitled page", None),
+            page("Personal", "Beta", "Untitled page", None),
+            page("Personal", "Alpha", "Untitled page", None),
+        ]);
+        let order = flat_page_order(&v, PageSort::Name, false);
+        let places: Vec<(String, String)> = order
+            .iter()
+            .map(|i| {
+                let p = &v.pages[*i];
+                (p.notebook.clone(), p.section.clone())
+            })
+            .collect();
+        assert_eq!(
+            places,
+            vec![
+                ("Personal".into(), "Alpha".into()),
+                ("Personal".into(), "Beta".into()),
+                ("Work".into(), "Zeta".into()),
+            ]
+        );
+    }
+
+    /// A state.json from before this choice existed must open in the old hierarchy, not the flat
+    /// list, and the flat list must open sorted by name A–Z. An unknown value is the default too.
+    #[test]
+    fn older_state_files_open_in_the_hierarchy() {
+        assert_eq!(PageListMode::from_id(None), PageListMode::Hierarchy);
+        assert_eq!(PageListMode::from_id(Some("nonsense")), PageListMode::Hierarchy);
+        assert_eq!(PageListMode::from_id(Some("flat")), PageListMode::Flat);
+        assert_eq!(PageSort::from_id(None), PageSort::Name);
+        assert_eq!(PageSort::from_id(Some("created")), PageSort::Created);
+        assert_eq!(PageSort::from_id(Some("changed")), PageSort::Changed);
+        // the first flat-list build wrote `date`; it meant last change
+        assert_eq!(PageSort::from_id(Some("date")), PageSort::Changed);
     }
 }
 

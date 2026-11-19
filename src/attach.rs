@@ -76,7 +76,7 @@ pub fn snippet_for_url(page_path: &Path, url: &str) -> io::Result<String> {
     }
 }
 
-/// A free name in `dir` for `name`: `photo.png` becomes `photo 2.png` when the first one is taken.
+/// A free name in `dir` for `name`: `photo.png` becomes `photo-2.png` when the first one is taken.
 /// Copying onto an existing name silently changed every earlier reference to that picture.
 /// A file name that is safe to put in a markdown reference.
 ///
@@ -91,7 +91,17 @@ fn safe_asset_name(name: &str) -> String {
             c => c,
         })
         .collect();
-    let trimmed = cleaned.trim_matches(['.', '-']).to_string();
+    // "report (final).pdf" should not become "report--final-.pdf": collapse the runs and drop a
+    // separator that only stands between the stem and its extension.
+    let mut squashed = String::with_capacity(cleaned.len());
+    for c in cleaned.chars() {
+        if c == '-' && squashed.ends_with('-') {
+            continue;
+        }
+        squashed.push(c);
+    }
+    let squashed = squashed.replace("-.", ".");
+    let trimmed = squashed.trim_matches(['.', '-']).to_string();
     if trimmed.is_empty() {
         "image.png".to_string()
     } else {
@@ -116,7 +126,10 @@ fn free_name(dir: &Path, name: &str) -> String {
         };
         n += 1;
     }
-    cand
+    // The disambiguating space is fine for a file but not for a markdown destination (the app's
+    // own asset scan ends a name at whitespace), so the final name goes through the same cleaning
+    // as the first one: `photo-2.png`, not `photo 2.png`.
+    safe_asset_name(&cand)
 }
 
 /// Take at most `len` bytes from `from`, trimmed back to a character boundary.
@@ -276,18 +289,44 @@ fn snippet_for_file_inner(page_path: &Path, src: &Path) -> io::Result<String> {
         }
     }
 
+    let dir = page_path.parent().unwrap_or(Path::new(".")).join(ASSETS);
+    std::fs::create_dir_all(&dir)?;
+
+    // A file that already sits in this page's `assets/`: reference it as it is. Copying would
+    // land beside it as `name 2.ext` and leave the page pointing at a duplicate.
+    if already_in(&dir, src) {
+        let file = src
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or(name);
+        let reference = format!("{ASSETS}/{file}");
+        let label = safe_asset_name(&file);
+        return Ok(format!("[{label}]({})", link_destination(&reference)));
+    }
+
+    let name = free_name(&dir, &name);
+    let target = dir.join(&name);
     if is_image(src) {
-        let dir = page_path.parent().unwrap_or(Path::new(".")).join(ASSETS);
-        std::fs::create_dir_all(&dir)?;
-        let name = free_name(&dir, &name);
-        let target = dir.join(&name);
         std::fs::copy(src, &target)?;
         Ok(format!("![{name}]({ASSETS}/{name})"))
     } else {
-        // A file linked in place: the label is escaped for the parser, and the destination is
-        // percent-encoded so a path with a `)` or a space does not end the link early.
-        let label = safe_asset_name(&name);
-        Ok(format!("[{label}]({})", link_destination(&src.display().to_string())))
+        // A document is carried with the page, exactly like a picture: a link to the user's
+        // original path broke as soon as the note was moved, synced or opened on another machine.
+        // The label is escaped for the parser, and the destination is percent-encoded so a path
+        // with a `)` or a space does not end the link early.
+        std::fs::copy(src, &target)?;
+        let reference = format!("{ASSETS}/{name}");
+        Ok(format!("[{name}]({})", link_destination(&reference)))
+    }
+}
+
+/// Is `src` already a file in `dir` (the page's own `assets/`)?
+fn already_in(dir: &Path, src: &Path) -> bool {
+    let real = std::fs::canonicalize(src);
+    let base = std::fs::canonicalize(dir);
+    match (real, base) {
+        (Ok(s), Ok(d)) => s.parent() == Some(d.as_path()),
+        _ => false,
     }
 }
 
@@ -389,7 +428,7 @@ pub fn paths_from_text(text: &str) -> Vec<PathBuf> {
     out
 }
 
-fn percent_decode(s: &str) -> String {
+pub fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -468,26 +507,60 @@ mod tests {
         std::fs::create_dir_all(other.parent().unwrap()).unwrap();
         RgbaImage::from_pixel(4, 4, image::Rgba([9, 8, 7, 255])).save(&other).unwrap();
         let second = snippet_for_file(&page, &other).unwrap();
-        assert_eq!(second, "![photo 2.png](assets/photo 2.png)");
+        assert_eq!(second, "![photo-2.png](assets/photo-2.png)");
         assert_ne!(
             std::fs::read(dir.join("assets/photo.png")).unwrap(),
-            std::fs::read(dir.join("assets/photo 2.png")).unwrap(),
+            std::fs::read(dir.join("assets/photo-2.png")).unwrap(),
             "the first picture is untouched"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn non_image_files_are_linked_in_place() {
+    fn non_image_files_are_copied_into_assets_and_linked_relative() {
         let dir = tmpdir("doc");
         let page = dir.join("Page.md");
         std::fs::write(&page, "body").unwrap();
-        let src = dir.join("notes.txt");
+        let src = dir.join("sub").join("notes.txt");
+        std::fs::create_dir_all(src.parent().unwrap()).unwrap();
         std::fs::write(&src, "hello").unwrap();
         let snippet = snippet_for_file(&page, &src).unwrap();
-        assert!(snippet.starts_with("[notes.txt]("));
-        assert!(snippet.contains("notes.txt"));
-        assert!(!dir.join("assets").exists());
+        // the document travels with the page: a link to the user's original folder would break as
+        // soon as the note was moved or synced
+        assert_eq!(snippet, "[notes.txt](assets/notes.txt)");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("assets/notes.txt")).unwrap(),
+            "hello"
+        );
+        // the original is left where it was
+        assert!(src.exists());
+        // a second document with the same name does not overwrite the first
+        let other = dir.join("other").join("notes.txt");
+        std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+        std::fs::write(&other, "second").unwrap();
+        assert_eq!(
+            snippet_for_file(&page, &other).unwrap(),
+            "[notes-2.txt](assets/notes-2.txt)"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("assets/notes.txt")).unwrap(),
+            "hello"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_asset_that_is_already_in_place_is_referenced_not_duplicated() {
+        let dir = tmpdir("asset-again");
+        let page = dir.join("Page.md");
+        std::fs::write(&page, "body").unwrap();
+        let assets = dir.join("assets");
+        std::fs::create_dir_all(&assets).unwrap();
+        let src = assets.join("brief.pdf");
+        std::fs::write(&src, b"%PDF").unwrap();
+        let snippet = snippet_for_file(&page, &src).unwrap();
+        assert_eq!(snippet, "[brief.pdf](assets/brief.pdf)");
+        assert_eq!(std::fs::read_dir(&assets).unwrap().count(), 1, "it made a copy");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -562,16 +635,18 @@ mod tests {
             );
             let _ = std::fs::remove_file(&src);
         }
-        // a file that is not a picture is linked, with a destination the parser can read back
+        // a file that is not a picture is attached the same way, with a destination the parser can
+        // read back
         let src = std::env::temp_dir().join("report (final).pdf");
         std::fs::write(&src, b"%PDF").unwrap();
         let snippet = snippet_for_file(&page, &src).unwrap();
+        assert_eq!(snippet, "[report-final.pdf](assets/report-final.pdf)");
+        assert!(dir.join("assets/report-final.pdf").is_file());
         assert!(!snippet.contains(' '), "destination still has a space: {snippet:?}");
         let d = crate::doc::from_markdown(&format!("{snippet}\n"));
-        assert_eq!(
-            d.blocks[0].runs[0].a.link.as_deref(),
-            Some(link_destination(&src.display().to_string()).as_str())
-        );
+        assert_eq!(d.blocks[0].kind, crate::doc::Kind::File);
+        assert_eq!(d.blocks[0].file, "assets/report-final.pdf");
+        assert_eq!(d.blocks[0].text(), "report-final.pdf");
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_dir_all(&dir);
     }

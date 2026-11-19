@@ -74,7 +74,7 @@ pub const BAR_PAD: f32 = 12.0;
 /// size and a half larger than the one it is modelled on was the first thing that read as wrong.
 pub const BAR_FONT: f32 = 11.5;
 /// Secondary text in the bar: the search hint and the group captions (~9.5 in WordCraft).
-pub const BAR_SMALL: f32 = 9.5;
+pub const BAR_SMALL: f32 = 10.0;
 /// Height of a row-1 control (the search box, the theme switch).
 pub const BAR_CTRL_H: f32 = 24.0;
 /// Height of a row-2 control (a tab, a painted button, a menu). 28, not 26: the picture buttons are
@@ -554,6 +554,38 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 
+/// Nova — v2's own look: a deeper, calmer canvas than Void, layered slate surfaces, a soft
+/// periwinkle accent and a lilac second accent. The corner radius is deliberately larger than the
+/// 1.x themes so cards and rows read as soft panels rather than boxes.
+pub const NOVA: Theme = Theme {
+    id: "nova",
+    label: "Nova",
+    dark: true,
+    bg: rgb(13, 15, 20),
+    panel: rgb(19, 22, 29),
+    panel2: rgb(25, 29, 38),
+    card: rgb(31, 36, 47),
+    card_hover: rgb(40, 46, 60),
+    border: rgb(50, 57, 73),
+    text: rgb(237, 240, 247),
+    dim: rgb(172, 181, 199),
+    faint: rgb(160, 171, 192),
+    ghost: rgb(72, 80, 96),
+    accent: rgb(129, 164, 255),
+    accent2: rgb(196, 148, 255),
+    heading: rgb(255, 255, 255),
+    code_bg: rgb(38, 44, 57),
+    done: rgb(104, 211, 145),
+    warn: rgb(250, 196, 110),
+    danger: rgb(255, 130, 130),
+    marks: MARKS,
+    mark_ink: MARK_INK,
+    chrome: ChromeFace::Chakra,
+    sheet: false,
+    radius: 12,
+    default_note: NoteFont::Grotesk,
+};
+
 pub const VOID: Theme = Theme {
     id: "void",
     label: "Void",
@@ -711,8 +743,21 @@ pub const WORDCRAFT: Theme = Theme {
     default_note: NoteFont::Carlito,
 };
 
-pub fn themes() -> [Theme; 5] {
-    [VOID, EMBER, SLATE, PAPER, WORDCRAFT]
+pub fn themes() -> [Theme; 6] {
+    [NOVA, VOID, EMBER, SLATE, PAPER, WORDCRAFT]
+}
+
+impl Theme {
+    /// The wash behind a selected row. A neutral lift/dip rather than the accent: an accent wash on
+    /// a light theme's rust or indigo reads as a warning, and five themes had five different ideas
+    /// of what "selected" looked like. The accent stays on the indicator bar and the title.
+    pub fn selected_fill(&self) -> Color32 {
+        if self.dark {
+            Color32::from_white_alpha(14)
+        } else {
+            Color32::from_black_alpha(17)
+        }
+    }
 }
 
 /// Apply a theme to the whole context. Called on startup and on theme change.
@@ -731,19 +776,21 @@ pub fn apply(ctx: &egui::Context, t: &Theme) {
     v.window_fill = t.card;
     v.window_stroke = Stroke::new(1.0_f32, t.border);
     // Round for the house themes, near-square for WordCraft, whose ribbon buttons have a 2–3 pt cut
-    v.window_corner_radius = CornerRadius::same(t.radius + 6);
-    v.menu_corner_radius = CornerRadius::same(t.radius + 2);
+    v.window_corner_radius = CornerRadius::same(t.radius + 8);
+    v.menu_corner_radius = CornerRadius::same(t.radius + 4);
+    // A softer, deeper lift than 1.x: two layers would be better still, but one generous blur
+    // reads as a floating window without the hard cut a tight shadow leaves under the title bar.
     v.window_shadow = Shadow {
-        offset: [0, 12],
-        blur: 30,
+        offset: [0, 16],
+        blur: 44,
         spread: 0,
-        color: Color32::from_black_alpha(if t.dark { 170 } else { 45 }),
+        color: Color32::from_black_alpha(if t.dark { 190 } else { 52 }),
     };
     v.popup_shadow = Shadow {
-        offset: [0, 8],
-        blur: 20,
-        spread: 0,
-        color: Color32::from_black_alpha(if t.dark { 150 } else { 35 }),
+        offset: [0, 10],
+        blur: 28,
+        spread: 1,
+        color: Color32::from_black_alpha(if t.dark { 165 } else { 42 }),
     };
     v.extreme_bg_color = t.code_bg;
     v.faint_bg_color = t.panel2;
@@ -783,23 +830,23 @@ pub fn apply(ctx: &egui::Context, t: &Theme) {
     // A ribbon is denser than the house bar: WordCraft's small radius is also its density switch.
     let dense = t.radius <= 4;
     style.spacing.item_spacing = if dense {
-        Vec2::new(6.0, 5.0)
+        Vec2::new(7.0, 5.0)
     } else {
-        Vec2::new(8.0, 7.0)
+        Vec2::new(9.0, 8.0)
     };
     style.spacing.button_padding = if dense {
-        Vec2::new(8.0, 3.0)
+        Vec2::new(9.0, 3.0)
     } else {
-        Vec2::new(10.0, 5.0)
+        Vec2::new(11.0, 6.0)
     };
-    style.spacing.window_margin = Margin::same(12);
-    style.spacing.indent = 14.0;
-    style.spacing.interact_size = Vec2::new(30.0, 26.0);
+    style.spacing.window_margin = Margin::same(14);
+    style.spacing.indent = 16.0;
+    style.spacing.interact_size = Vec2::new(32.0, 28.0);
     style.spacing.scroll.floating = true;
-    style.spacing.scroll.bar_width = 6.0;
+    style.spacing.scroll.bar_width = 8.0;
     style.spacing.scroll.bar_inner_margin = 2.0;
-    style.spacing.scroll.bar_outer_margin = 4.0;
-    style.animation_time = 0.10;
+    style.spacing.scroll.bar_outer_margin = 6.0;
+    style.animation_time = 0.14;
     style.wrap_mode = Some(egui::TextWrapMode::Wrap);
 
     let mut ts: BTreeMap<TextStyle, FontId> = BTreeMap::new();
@@ -808,9 +855,9 @@ pub fn apply(ctx: &egui::Context, t: &Theme) {
             ts.insert(TextStyle::Name($name.into()), FontId::new($size, fam($fam)));
         };
     }
-    ts.insert(TextStyle::Heading, FontId::new(23.0, fam(F_BOLD)));
-    ts.insert(TextStyle::Body, FontId::new(15.0, fam(F_REG)));
-    ts.insert(TextStyle::Button, FontId::new(14.0, fam(F_MED)));
+    ts.insert(TextStyle::Heading, FontId::new(24.0, fam(F_BOLD)));
+    ts.insert(TextStyle::Body, FontId::new(15.5, fam(F_REG)));
+    ts.insert(TextStyle::Button, FontId::new(14.5, fam(F_MED)));
     ts.insert(TextStyle::Small, FontId::new(12.5, fam(F_REG)));
     ts.insert(TextStyle::Monospace, FontId::new(13.5, fam(F_MONO)));
     // The page title is the one line that must be in the note's own face: it used to take the chrome
@@ -818,9 +865,9 @@ pub fn apply(ctx: &egui::Context, t: &Theme) {
     // the mismatch was the first thing you saw. `title_font` is the single definition, so the style
     // and the TextEdit that draws the title can never disagree.
     ts.insert(TextStyle::Name("Title".into()), title_font());
-    ins!("H1", 22.0, F_BOLD);
-    ins!("H2", 18.5, F_SEMI);
-    ins!("H3", 16.0, F_SEMI);
+    ins!("H1", 23.0, F_BOLD);
+    ins!("H2", 19.0, F_SEMI);
+    ins!("H3", 16.5, F_SEMI);
     ins!("Label", 12.0, F_MED);
     ins!("Tiny", 11.0, F_MED);
     ins!("MonoSmall", 12.0, F_MONO);
@@ -979,7 +1026,7 @@ pub fn icon_button(ui: &mut Ui, glyph: &str, tip: &str, t: &Theme) -> Response {
         ICON_GLYPHS.contains(glyph),
         "glyph {glyph:?} has no face in the bundled fonts — it will render as a tofu box"
     );
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(32.0), Sense::click());
     let p = ui.painter();
     if resp.hovered() {
         p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
@@ -1006,7 +1053,7 @@ pub fn icon_button_painted(
     t: &Theme,
     paint: impl FnOnce(&egui::Painter, egui::Rect, Color32),
 ) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(32.0), Sense::click());
     if resp.hovered() {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
@@ -1038,7 +1085,7 @@ pub fn nav_row(
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 27.0), Sense::click());
     let p = ui.painter();
     if selected {
-        p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.16));
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.selected_fill());
         p.rect_filled(
             egui::Rect::from_min_size(rect.min + Vec2::new(0.0, 5.0), Vec2::new(2.5, rect.height() - 10.0)),
             CornerRadius::same(2),
@@ -1092,6 +1139,17 @@ pub fn nav_row(
     resp
 }
 
+/// Where a rail row sits in the Notebook → Chapter → Page tree. It only sets the type: notebooks
+/// are the loudest names, chapters step down, and the `+ Notebook` / `+ Chapter` / `+ Page` actions
+/// are quiet until hovered. Without this every row was the same 15.5 pt semi, so the tree read as
+/// one flat list.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RailTier {
+    Notebook,
+    Chapter,
+    Action,
+}
+
 /// A row in the rail: the name wrapped at word boundaries over as many lines as it needs, and its
 /// count on the right.
 ///
@@ -1105,6 +1163,7 @@ pub fn rail_row(
     selected: bool,
     badge: Option<String>,
     indent: f32,
+    tier: RailTier,
     t: &Theme,
 ) -> Response {
     let width = ui.available_width();
@@ -1112,10 +1171,20 @@ pub fn rail_row(
         ui.fonts_mut(|f| f.layout_no_wrap(b, FontId::new(11.0, fam(F_MONO)), t.faint))
     });
     let badge_w = badge_g.as_ref().map(|g| g.size().x + 10.0).unwrap_or(0.0);
-    // `t.text`, not `t.dim`: the page list sets its titles in `t.text` and those are what these are
-    // being matched to. A dim name in the same face still reads a weight lighter than a bright one —
-    // anti-aliasing on a dark panel thins every stroke — so the weight alone did not make them twins.
-    let text_color = if selected { t.heading } else { t.text };
+    let (size, weight) = match tier {
+        RailTier::Notebook => (16.5, F_BOLD),
+        RailTier::Chapter => (14.5, F_SEMI),
+        RailTier::Action => (13.5, F_MED),
+    };
+    let text_color = if selected {
+        t.heading
+    } else {
+        match tier {
+            RailTier::Notebook => t.text,
+            RailTier::Chapter => t.dim,
+            RailTier::Action => t.faint,
+        }
+    };
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = (width - 18.0 - indent - badge_w).max(24.0);
     job.wrap.break_anywhere = false;
@@ -1123,9 +1192,7 @@ pub fn rail_row(
         label,
         0.0,
         egui::TextFormat {
-            // Semi at every weight, like the page list's titles: the rail's names are headings for the
-            // lists beside them, not the body text they used to be set as.
-            font_id: FontId::new(15.5, fam(F_SEMI)),
+            font_id: FontId::new(size, fam(weight)),
             color: text_color,
             ..Default::default()
         },
@@ -1142,7 +1209,7 @@ pub fn rail_row(
     {
         let p = ui.painter();
         if selected {
-            p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.16));
+            p.rect_filled(rect, CornerRadius::same(t.radius), t.selected_fill());
             p.rect_filled(
                 egui::Rect::from_min_size(
                     rect.min + Vec2::new(0.0, 5.0),
@@ -1155,7 +1222,7 @@ pub fn rail_row(
             p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
         }
     }
-    let text_color = if selected { t.heading } else { t.text };
+    let text_color = if selected { t.heading } else { text_color };
     let at = egui::pos2(rect.min.x + 10.0 + indent, rect.center().y - text_h / 2.0);
     ui.painter().galley(at, galley, text_color);
     if let Some(g) = badge_g {
@@ -1170,6 +1237,9 @@ pub fn rail_row(
             t.faint,
         );
     }
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
     resp
 }
 
@@ -1182,12 +1252,12 @@ pub fn rail_row(
 /// it said `note font` in mono. The uppercase and the tracking are gone with the face: tracking a
 /// monospaced font only adds gaps to spacing that is already even.
 pub fn section_label(ui: &mut Ui, text: &str, t: &Theme) {
-    ui.add_space(2.0);
+    ui.add_space(4.0);
     ui.label(
         egui::RichText::new(text)
-            .family(fam(F_MONO))
-            .size(11.0)
-            .color(t.faint),
+            .family(fam(F_MED))
+            .size(11.5)
+            .color(t.dim),
     );
 }
 
@@ -1199,11 +1269,11 @@ pub fn toolbar_button(ui: &mut Ui, label: &str, active: bool, t: &Theme) -> Resp
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let p = ui.painter();
     if active {
-        p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.20));
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.26));
         p.rect_stroke(
             rect,
             CornerRadius::same(t.radius),
-            Stroke::new(1.0_f32, t.accent.gamma_multiply(0.6)),
+            Stroke::new(1.2_f32, t.accent.gamma_multiply(0.75)),
             StrokeKind::Inside,
         );
     } else if resp.hovered() {
@@ -1505,11 +1575,11 @@ pub fn toolbar_icon_button(ui: &mut Ui, icon: Icon, tip: &str, active: bool, t: 
     {
         let p = ui.painter();
         if active {
-            p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.20));
+            p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.26));
             p.rect_stroke(
                 rect,
                 CornerRadius::same(t.radius),
-                Stroke::new(1.0_f32, t.accent.gamma_multiply(0.6)),
+                Stroke::new(1.2_f32, t.accent.gamma_multiply(0.75)),
                 StrokeKind::Inside,
             );
         } else if resp.hovered() {
@@ -1583,11 +1653,11 @@ pub fn segment_button(ui: &mut Ui, label: &str, active: bool, t: &Theme) -> Resp
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let p = ui.painter();
     if active {
-        p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.20));
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.accent.gamma_multiply(0.26));
         p.rect_stroke(
             rect,
             CornerRadius::same(t.radius),
-            Stroke::new(1.0_f32, t.accent.gamma_multiply(0.6)),
+            Stroke::new(1.2_f32, t.accent.gamma_multiply(0.75)),
             StrokeKind::Inside,
         );
     } else if resp.hovered() {
@@ -1731,6 +1801,22 @@ pub fn ribbon_menu(ui: &mut Ui, label: &str, t: &Theme, close_on_click_outside: 
     let _ = menu.ui(ui, add);
 }
 
+/// The theme switch: a small swatch of the current palette instead of an abstract `◑`, which told
+/// you nothing about what pressing it would do. The outer disc is the theme's surface, the inner
+/// one its accent; the tooltip names the theme.
+pub fn theme_swatch(ui: &mut Ui, t: &Theme) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BAR_CTRL_H), Sense::click());
+    let p = ui.painter();
+    if resp.hovered() {
+        p.rect_filled(rect, CornerRadius::same(t.radius), t.card_hover);
+    }
+    let c = rect.center();
+    p.circle_filled(c, 8.0, t.panel2);
+    p.circle_stroke(c, 8.0, Stroke::new(1.0_f32, t.border));
+    p.circle_filled(c + Vec2::new(2.0, 1.5), 4.5, t.accent);
+    resp.on_hover_text(format!("theme: {} (Ctrl+Shift+T)", t.label))
+}
+
 /// A row-1 control button: 24 pt square, so the theme switch and the search box share a height.
 pub fn icon_button_bar(ui: &mut Ui, glyph: &str, tip: &str, t: &Theme) -> Response {
     debug_assert!(
@@ -1758,6 +1844,27 @@ pub fn icon_button_bar(ui: &mut Ui, glyph: &str, tip: &str, t: &Theme) -> Respon
 /// This is Word's document view and the one piece of its look a palette cannot fake — a note that
 /// bleeds to the edges of the window reads as a text field, not as a document. Only a theme with
 /// `sheet` draws it; the other four keep the full-bleed canvas their design was measured against.
+/// The canvas behind the note: a barely-there vertical gradient from a tint of the accent at the
+/// top to the flat background at the foot. It is the difference between a note floating on a
+/// coloured rectangle and a note sitting on a lit surface, and it costs one mesh per frame.
+pub fn paint_canvas(ui: &Ui, rect: egui::Rect, t: &Theme) {
+    let a = if t.dark { 0.045 } else { 0.025 };
+    let mix = |f: u8, b: u8| (f as f32 * a + b as f32 * (1.0 - a)).round() as u8;
+    let tint = Color32::from_rgb(
+        mix(t.accent.r(), t.bg.r()),
+        mix(t.accent.g(), t.bg.g()),
+        mix(t.accent.b(), t.bg.b()),
+    );
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.left_top(), tint);
+    mesh.colored_vertex(rect.right_top(), tint);
+    mesh.colored_vertex(rect.right_bottom(), t.bg);
+    mesh.colored_vertex(rect.left_bottom(), t.bg);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    ui.painter().add(egui::Shape::mesh(mesh));
+}
+
 pub fn paint_page_sheet(ui: &Ui, rect: egui::Rect, t: &Theme) {
     let shadow = Shadow {
         offset: [0, 2],
@@ -1772,6 +1879,29 @@ pub fn paint_page_sheet(ui: &Ui, rect: egui::Rect, t: &Theme) {
         rect,
         CornerRadius::same(1),
         Stroke::new(1.0_f32, t.border),
+        StrokeKind::Inside,
+    );
+}
+
+/// The full-bleed themes' note surface: the same page geometry as `paint_page_sheet`, but in the
+/// theme's panel colour with a soft lift instead of a white sheet. It separates the note from the
+/// canvas without turning every theme into Word — a note floating on a rectangle reads as a text
+/// field, and this gives the column an edge and a little depth.
+pub fn paint_note_surface(ui: &Ui, rect: egui::Rect, t: &Theme) {
+    let radius = CornerRadius::same(t.radius + 4);
+    let shadow = Shadow {
+        offset: [0, 2],
+        blur: 18,
+        spread: 0,
+        color: Color32::from_black_alpha(if t.dark { 90 } else { 26 }),
+    };
+    let p = ui.painter();
+    p.add(shadow.as_shape(rect, radius));
+    p.rect_filled(rect, radius, t.panel);
+    p.rect_stroke(
+        rect,
+        radius,
+        Stroke::new(1.0_f32, t.border.gamma_multiply(0.7)),
         StrokeKind::Inside,
     );
 }

@@ -25,6 +25,8 @@ pub enum Kind {
     Code,
     /// A picture: `image` holds the reference, `runs[0]` its caption.
     Image,
+    /// An attached document: `file` holds the asset reference, `runs[0]` its display name.
+    File,
     Rule,
     /// A simple table: `table` holds the grid, its first row being the header.
     Table,
@@ -197,6 +199,9 @@ pub struct Block {
     /// Image: the asset reference (`assets/x.png`).
     #[serde(default)]
     pub image: String,
+    /// File: the asset reference (`assets/report.pdf`).
+    #[serde(default)]
+    pub file: String,
     /// Image: an explicit display width in points, once the user resizes it.
     #[serde(default)]
     pub width: Option<u32>,
@@ -217,6 +222,7 @@ impl Block {
             runs: Vec::new(),
             done: false,
             image: String::new(),
+            file: String::new(),
             width: None,
             crop: None,
             table: None,
@@ -228,6 +234,26 @@ impl Block {
             return t.text();
         }
         self.runs.iter().map(|r| r.text.as_str()).collect()
+    }
+
+    /// The destination when the block is **nothing but one link**, which is the shape an attached
+    /// document takes: `[brief.pdf](assets/brief.pdf)`.
+    ///
+    /// `None` when any word sits outside the link. A click on an ordinary sentence should not open
+    /// something the reader did not point at.
+    pub fn sole_link(&self) -> Option<&str> {
+        let mut found: Option<&str> = None;
+        for r in &self.runs {
+            if r.text.trim().is_empty() {
+                continue;
+            }
+            let link = r.a.link.as_deref()?;
+            match found {
+                Some(prev) if prev != link => return None,
+                _ => found = Some(link),
+            }
+        }
+        found
     }
 
     pub fn plain(kind: Kind, text: impl Into<String>) -> Block {
@@ -593,6 +619,46 @@ pub fn parse_inline(s: &str, base: Attrs) -> Vec<Run> {
     out
 }
 
+/// A line that is only `[label](destination)`, with nothing before the `[` or after the `)`.
+fn sole_link_line(line: &str) -> Option<(&str, &str)> {
+    let line = line.trim();
+    let rest = line.strip_prefix('[')?;
+    let close = rest.find("](")?;
+    let after = &rest[close + 2..];
+    let end = after.find(')')?;
+    if !after[end + 1..].trim().is_empty() {
+        return None;
+    }
+    Some((&rest[..close], &after[..end]))
+}
+
+/// A destination that names a file carried by the page, not a web page, a wiki link or a fragment.
+fn attachment_destination(dest: &str) -> bool {
+    let d = dest.trim();
+    !d.is_empty()
+        && !d.starts_with("http://")
+        && !d.starts_with("https://")
+        && !d.starts_with("mailto:")
+        && !d.starts_with("[[")
+        && !d.starts_with('#')
+}
+
+/// A file size for an attachment card: `812 B`, `48.2 kB`, `7.4 MB`.
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "kB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit = 0usize;
+    while size >= 1000.0 && unit + 1 < UNITS.len() {
+        size /= 1000.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
+}
+
 /// Bring a markdown body over to a document. Blank lines carry no information in a document (the
 /// layout spaces blocks), so they are dropped; fenced code keeps its lines, without the fences.
 pub fn from_markdown(body: &str) -> Doc {
@@ -644,6 +710,22 @@ pub fn from_markdown(body: &str) -> Doc {
             }));
             doc.blocks.push(b);
             continue;
+        }
+        // A line that is nothing but a link to a file is an attachment, not prose: the page draws
+        // a file card, and the markdown stays a plain link that every other editor understands.
+        if let Some((label, dest)) = sole_link_line(line) {
+            if attachment_destination(dest) {
+                let mut b = Block::new(Kind::File);
+                b.file = dest.to_string();
+                let name = label.trim();
+                b.runs.push(Run::plain(if name.is_empty() {
+                    dest.rsplit('/').next().unwrap_or(dest)
+                } else {
+                    name
+                }));
+                doc.blocks.push(b);
+                continue;
+            }
         }
         let hashes = trimmed.chars().take_while(|c| *c == '#').count();
         if (1..=6).contains(&hashes) && (trimmed.len() == hashes || trimmed.as_bytes()[hashes] == b' ')
@@ -740,6 +822,16 @@ pub fn to_markdown(doc: &Doc) -> String {
             Kind::Image => {
                 out.push_str(&crate::vault::image_line(&b.image, &b.text(), b.width, b.crop));
                 out.push('\n');
+                continue;
+            }
+            Kind::File => {
+                // a plain link again: the card is the app's way of showing an attachment, and a
+                // link is the portable way of saying it
+                out.push('[');
+                out.push_str(&b.text());
+                out.push_str("](");
+                out.push_str(&b.file);
+                out.push_str(")\n");
                 continue;
             }
             Kind::Rule => {
@@ -1069,7 +1161,7 @@ pub fn split_and_insert(
     let block = blocks.get(bi)?.clone();
     if matches!(
         block.kind,
-        Kind::Image | Kind::Rule | Kind::Table | Kind::Code
+        Kind::Image | Kind::File | Kind::Rule | Kind::Table | Kind::Code
     ) {
         return None;
     }
@@ -2079,6 +2171,36 @@ code line
     }
 
     #[test]
+    fn a_line_that_is_one_local_link_becomes_a_file_block() {
+        // the line an attachment writes: the whole block is the link, so the page can draw a file
+        // card instead of a sentence-shaped hyperlink
+        let doc = from_markdown("[brief.pdf](assets/brief.pdf)\n");
+        assert_eq!(doc.blocks[0].kind, Kind::File);
+        assert_eq!(doc.blocks[0].file, "assets/brief.pdf");
+        assert_eq!(doc.blocks[0].text(), "brief.pdf");
+        // and the markdown stays a plain link: the card is a view of it, not a new format
+        assert_eq!(to_markdown(&doc), "[brief.pdf](assets/brief.pdf)\n");
+        // a lone web link is still prose, because there is no file to carry
+        let doc = from_markdown("[site](https://example.com)\n");
+        assert_eq!(doc.blocks[0].kind, Kind::Para);
+        assert_eq!(doc.blocks[0].sole_link(), Some("https://example.com"));
+        // words around the link: it is an ordinary sentence
+        let doc = from_markdown("the brief is in [brief.pdf](assets/brief.pdf) today\n");
+        assert_eq!(doc.blocks[0].kind, Kind::Para);
+        assert_eq!(doc.blocks[0].sole_link(), None);
+        // ordinary prose
+        let doc = from_markdown("just words\n");
+        assert_eq!(doc.blocks[0].sole_link(), None);
+    }
+
+    #[test]
+    fn sizes_read_as_sizes() {
+        assert_eq!(human_size(812), "812 B");
+        assert_eq!(human_size(48_200), "48.2 kB");
+        assert_eq!(human_size(7_400_000), "7.4 MB");
+    }
+
+    #[test]
     fn every_document_has_a_block_to_type_in() {
         // an empty body parses to no blocks, and a page with no block has no caret at all
         let mut doc = from_markdown("");
@@ -2155,6 +2277,7 @@ code line
             "# h\n\ntext **b** *i* `c` ~~s~~ [l](https://e.com) [[w]] #t @due(2026-10-24)\n\n- a\n- [ ] b\n- [x] c\n\n> q\n\n---\n\n![alt](assets/i.png)\n\n```\ncode\n```\n",
             "plain words\nanother line\n",
             "— em dash and unicode ✏ words\n",
+            "[brief.pdf](assets/brief.pdf)\n",
             "",
         ] {
             let once = from_markdown(md);

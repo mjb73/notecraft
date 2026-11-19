@@ -28,6 +28,7 @@ mod keylayout;
 mod platform;
 mod spell;
 mod theme;
+mod update;
 mod vault;
 #[cfg(windows)]
 mod windows_dnd;

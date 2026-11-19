@@ -133,6 +133,31 @@ pub fn open_path(p: &Path) -> bool {
     cmd.spawn().map(|_| true).unwrap_or(false)
 }
 
+/// Open a URL in whatever the desktop considers its browser. Unlike `open_path` this must not
+/// treat the string as a file, so Windows gets `start` (with the empty title argument it insists
+/// on) rather than Explorer.
+pub fn open_url(url: &str) -> bool {
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", "", url]);
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = Command::new("open");
+        c.arg(url);
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    cmd.spawn().map(|_| true).unwrap_or(false)
+}
+
 /// Ask for files with the platform's own chooser (`rfd`: the XDG desktop portal on Linux,
 /// `IFileOpenDialog` on Windows, `NSOpenPanel` on macOS). An empty list means the user cancelled
 /// or no chooser could be shown.
@@ -145,7 +170,18 @@ pub fn pick_files(images_only: bool) -> Vec<PathBuf> {
         dlg.add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"])
             .set_title("Attach an image")
     } else {
-        dlg.add_filter("All files", &["*"]).set_title("Attach files")
+        // Documents first, because that is what the file chooser is usually opened for; pictures
+        // and everything else stay one filter away.
+        dlg.add_filter(
+            "Documents",
+            &[
+                "pdf", "doc", "docx", "odt", "rtf", "txt", "md", "csv", "xls", "xlsx", "ods",
+                "ppt", "pptx", "odp", "epub",
+            ],
+        )
+        .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"])
+        .add_filter("All files", &["*"])
+        .set_title("Attach a picture or document")
     };
     dlg.pick_files().unwrap_or_default()
 }
@@ -222,7 +258,13 @@ pub fn capture_screen(path: &Path) -> Result<(), String> {
         if !tpl.trim().is_empty() {
             let cmdline = tpl.replace("{out}", &shell_quote(&path.display().to_string()));
             #[cfg(windows)]
-            let status = Command::new("cmd").args(["/C", &cmdline]).status();
+            let status = {
+                // `raw_arg`, not `arg`: Rust would quote the whole command line the way the C
+                // runtime does (`\"`), which cmd.exe does not understand — the escape hatch then
+                // failed with "Path not found" on every Windows box.
+                use std::os::windows::process::CommandExt as _;
+                Command::new("cmd").arg("/C").raw_arg(&cmdline).status()
+            };
             #[cfg(not(windows))]
             let status = Command::new("sh").args(["-c", &cmdline]).status();
             let ok = status.map(|s| s.success()).unwrap_or(false);
@@ -323,6 +365,124 @@ fn shell_quote(s: &str) -> String {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
         format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
+/// NoteCraft's own window, as this platform can name it: `kdotool`'s id on Linux, the `HWND`
+/// eframe handed the app on Windows, nothing on macOS.
+///
+/// A snip hides the window so the grab photographs whatever is *behind* it. `set_window_visible`
+/// undoes that, and it is deliberately callable from the capture thread.
+#[derive(Clone, Debug, Default)]
+pub struct OwnWindow {
+    /// `kdotool search` id (Linux).
+    #[cfg(target_os = "linux")]
+    pub id: Option<String>,
+    /// The window handle eframe was given (Windows); 0 until the first frame has read it.
+    #[cfg(windows)]
+    pub hwnd: isize,
+}
+
+impl OwnWindow {
+    /// Whether a snip may hide the window at all.
+    ///
+    /// On Windows that needs the `HWND`: a hidden window stops receiving `WM_PAINT`, so eframe
+    /// runs no further frames and a `ViewportCommand::Visible(true)` queued on the context is
+    /// never applied — the app would be stranded invisible. There is no such trap on the other
+    /// backends, where the frame loop keeps running and the command lands.
+    pub fn can_hide(&self) -> bool {
+        #[cfg(windows)]
+        {
+            self.hwnd != 0
+        }
+        #[cfg(not(windows))]
+        {
+            true
+        }
+    }
+
+    /// Whether the *platform* has to hide and restore the window (rather than egui's own
+    /// `ViewportCommand::Visible`). True on Windows, where the restore must not need a frame.
+    pub fn hide_via_platform(&self) -> bool {
+        cfg!(windows)
+    }
+}
+
+#[cfg(windows)]
+static OWN_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+/// Remember the window eframe created (Windows): the capture thread needs the handle, and it
+/// cannot ask eframe for it.
+#[cfg(windows)]
+pub fn note_own_window(hwnd: isize) {
+    OWN_HWND.store(hwnd, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// NoteCraft's own window, if this platform can name it.
+pub fn own_window() -> OwnWindow {
+    #[cfg(target_os = "linux")]
+    {
+        // KWin names the window after its title, which is "<notebook> / <chapter> — NoteCraft".
+        let out = Command::new("kdotool")
+            .args(["search", "--name", "NoteCraft"])
+            .output()
+            .ok();
+        let id = out.and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split_whitespace()
+                .next()
+                .map(str::to_owned)
+        });
+        OwnWindow { id }
+    }
+    #[cfg(windows)]
+    {
+        OwnWindow {
+            hwnd: OWN_HWND.load(std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        OwnWindow::default()
+    }
+}
+
+/// Hide or restore NoteCraft's window around a grab. Called from the capture thread, so it may
+/// not touch egui: only the platform's own calls (see `OwnWindow::restorable`).
+pub fn set_window_visible(w: &OwnWindow, visible: bool) {
+    #[cfg(target_os = "linux")]
+    {
+        let Some(id) = w.id.as_deref() else { return };
+        // KWin drives X11 clients and Wayland windows alike, so this needs no backend branch.
+        let cmd = if visible { "windowactivate" } else { "windowminimize" };
+        let _ = Command::new("kdotool")
+            .args([cmd, id])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SW_HIDE, SW_SHOW, SetForegroundWindow, ShowWindow,
+        };
+        if w.hwnd == 0 {
+            return;
+        }
+        let hwnd = w.hwnd as _;
+        // SAFETY: `hwnd` is the handle eframe created the window with and keeps alive for as long
+        // as the app runs; both calls are valid on any thread for a window of this process.
+        unsafe {
+            ShowWindow(hwnd, if visible { SW_SHOW } else { SW_HIDE });
+            if visible {
+                SetForegroundWindow(hwnd);
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        let _ = (w, visible);
     }
 }
 
@@ -467,5 +627,23 @@ mod tests {
     fn the_backend_label_is_never_empty() {
         assert!(!backend_label().is_empty());
         assert!(!backend_hint().is_empty());
+    }
+
+    #[test]
+    fn a_snip_only_hides_the_window_when_it_can_be_shown_again() {
+        // Windows: a hidden window stops painting, so the only way back is the HWND — without it
+        // the grab has to include NoteCraft rather than risk stranding the app invisible.
+        #[cfg(windows)]
+        {
+            assert!(!OwnWindow { hwnd: 0 }.can_hide());
+            assert!(OwnWindow { hwnd: 1234 }.can_hide());
+            assert!(OwnWindow { hwnd: 1234 }.hide_via_platform());
+        }
+        // Linux and macOS keep the egui path: the frame loop runs on, so `Visible(true)` lands.
+        #[cfg(not(windows))]
+        {
+            assert!(OwnWindow::default().can_hide());
+            assert!(!OwnWindow::default().hide_via_platform());
+        }
     }
 }

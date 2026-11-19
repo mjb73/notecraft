@@ -48,7 +48,7 @@ Documents/NoteCraft/
   Personal/                        <- notebook
     Notes/                         <- section
       Welcome.md                   <- page, plain markdown
-      Welcome.note                 <- the same page as a document (formatting, images, crops)
+      Welcome.note                 <- the same page as a document (formatting, images, attachments, crops)
       assets/                      <- pictures and attachments, referenced from the page
   .trash/                          <- deleted pages, restorable in the app
 ```
@@ -65,8 +65,17 @@ NOTECRAFT_VAULT=~/Sync/Notes notecraft
 
 ## What it does
 
-- **Notebooks → sections → pages**, with drag-free reordering, rename, duplicate, and a trash you
-  can restore from.
+- **Check for updates…** in the *Display* menu, at the foot: it asks GitHub for the newest
+  NoteCraft release, and if there is one it shows the notes and a single *Install and restart*
+  button. Nothing looks for a release on its own, the download is checked against the release's
+  sha256 before the running binary is replaced, and the window comes back on the new build with
+  the open note saved. This is the only request the app makes. (`NOTECRAFT_UPDATE_ENDPOINT`
+  points the check at another address, for testing.)
+- **Notebooks → chapters → pages**, with drag-free reordering, rename, duplicate, and a trash you
+  can restore from. The page column has two shapes: **Chapters** (the default — the chapter list, then
+  the pages of the ticked one) and **All pages** (every page in the vault in one flat list, sorted by
+  name A–Z/Z–A, creation date, or last-changed date, each newest or oldest first). Click a chip at
+  the top of the column to switch; the choice is remembered.
 - **A real editor** — headings, quotes, code blocks, todos, images, bold/italic/strikethrough/code
   on any range, text size, due dates, tags. Formatting lives in the `.note` document beside the
   page; the `.md` stays valid, readable markdown.
@@ -77,9 +86,16 @@ NOTECRAFT_VAULT=~/Sync/Notes notecraft
 - **One search** (`Ctrl+K` or `Ctrl+F`): pages, tags and commands in a single row, matching words
   highlighted. `F3` / `Shift+F3` step through the remaining matches in the open page, with a count
   in the status bar.
-- **Pictures**: paste (`Ctrl+V`), attach files, drop them in, grab a screen snip (`Ctrl+Shift+S`)
+- **Pictures**: paste (`Ctrl+V`), attach pictures, drop them in, grab a screen snip (`Ctrl+Shift+S`)
   and crop it in the app, annotate it (`Ctrl+Shift+A`), resize it by dragging its corner, crop
   non-destructively (`Ctrl+Shift+C`), centre it, round its corners.
+- **Documents**: **Attach** (or the *Picture → Attach a picture or document…* menu, or a file
+  dropped from the file manager) also takes PDFs, Word/ODF files, text files and anything else.
+  The file is copied into the page's `assets/` folder, so the note stays portable, and the page
+  shows it as an attachment card — file icon, name, type and size, with **Open** and **Remove**.
+  Opening hands the file to the desktop's own application; the markdown stays a plain link, so
+  other editors still read it. The HTML/PDF export carries the document inside the exported file
+  as a download link.
 - **Note fonts and colour emoji.** The Display menu sets the note body in any of eleven bundled
   faces — Chakra Petch, Space Grotesk, Inter, Nunito, Fraunces, Literata, Merriweather, EB Garamond,
   Bitter, Caveat and Carlito — each name drawn in the face it names, with text size S/M/L. Colour

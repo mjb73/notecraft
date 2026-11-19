@@ -115,6 +115,67 @@ pub fn html(d: &doc::Doc, title: &str, page: &Path, t: &Theme) -> String {
                 body.push_str("<hr>\n");
                 i += 1;
             }
+            Kind::File => {
+                let b = &d.blocks[i];
+                let name = b.text();
+                let abs = vault::contained_asset_path(page, &b.file);
+                match abs
+                    .as_ref()
+                    .map(std::fs::read)
+                    .and_then(|r| r.ok())
+                {
+                    Some(bytes) => {
+                        let abs = abs.unwrap_or_default();
+                        // The HTML export is one file: the document rides in it as a data URI,
+                        // exactly like a picture, so a reader on another machine can download it.
+                        let mime = match abs
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .map(|e| e.to_ascii_lowercase())
+                            .as_deref()
+                        {
+                            Some("pdf") => "application/pdf",
+                            Some("doc") => "application/msword",
+                            Some("docx") => {
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            }
+                            Some("odt") => "application/vnd.oasis.opendocument.text",
+                            Some("xls") => "application/vnd.ms-excel",
+                            Some("xlsx") => {
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            }
+                            Some("ppt") => "application/vnd.ms-powerpoint",
+                            Some("pptx") => {
+                                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                            }
+                            Some("odp") => "application/vnd.oasis.opendocument.presentation",
+                            Some("epub") => "application/epub+zip",
+                            Some("rtf") => "application/rtf",
+                            Some("csv") => "text/csv",
+                            Some("txt") | Some("md") => "text/plain; charset=utf-8",
+                            _ => "application/octet-stream",
+                        };
+                        let kind = abs
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .map(|e| e.to_ascii_uppercase())
+                            .unwrap_or_else(|| "FILE".to_string());
+                        body.push_str(&format!(
+                            "<p class=\"attachment\"><a href=\"data:{mime};base64,{}\" download=\"{}\">{}</a><span class=\"filemeta\">{} &middot; {}</span></p>\n",
+                            b64(&bytes),
+                            escape_attr(&name),
+                            escape(&name),
+                            escape(&kind),
+                            doc::human_size(bytes.len() as u64),
+                        ));
+                    }
+                    None => body.push_str(&format!(
+                        "<p class=\"missing\">missing attachment: {}</p>\n",
+                        escape(&b.file)
+                    )),
+                }
+                i += 1;
+            }
             Kind::Table => {
                 let t = d.blocks[i].table.clone().unwrap_or_default();
                 body.push_str("<table>\n");
@@ -329,6 +390,12 @@ pre code {{ background: none; padding: 0; color: {text}; }}
 figure {{ margin: 1em 0; }}
 img {{ max-width: 100%; height: auto; border-radius: 6px; }}
 figcaption {{ font: 11px "JetBrains Mono", ui-monospace, monospace; color: {faint}; margin-top: 4px; }}
+.attachment {{
+  margin: 0.55em 0; padding: 8px 10px; border: 1px solid {border}; border-radius: 8px;
+  background: {code_bg};
+}}
+.attachment a {{ font-weight: 600; }}
+.filemeta {{ margin-left: 8px; color: {faint}; font: 11px "JetBrains Mono", ui-monospace, monospace; }}
 .tag {{ background: {tag_bg}; color: {accent}; padding: 0 4px; border-radius: 4px; }}
 .due {{ background: {due_bg}; color: {warn}; padding: 0 4px; border-radius: 4px; }}
 .wikilink {{ color: {accent2}; text-decoration: underline dotted; }}
@@ -466,6 +533,15 @@ pub fn plain(d: &doc::Doc, title: &str) -> String {
                 } else {
                     out.push_str(text.trim());
                 }
+                out.push_str("]\n");
+            }
+            Kind::File => {
+                out.push_str("[attachment: ");
+                out.push_str(if text.trim().is_empty() {
+                    b.file.as_str()
+                } else {
+                    text.trim()
+                });
                 out.push_str("]\n");
             }
         }
@@ -688,6 +764,26 @@ mod tests {
         let html = super::html(&d, "Note", &page, &t);
         assert!(!html.contains("javascript:"), "exported HTML carries the scheme: {html}");
         assert!(html.contains("click"), "the words are still there");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_attachment_is_exported_as_a_downloadable_card() {
+        let dir = tmpdir("file-export");
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("assets/brief.pdf"), b"%PDF-1.4 test").unwrap();
+        let page = dir.join("Note.md");
+        let d = from_markdown("[brief.pdf](assets/brief.pdf)\n");
+        let t = theme::themes()[0];
+        let html = super::html(&d, "Note", &page, &t);
+        assert!(html.contains("class=\"attachment\""), "{html}");
+        assert!(html.contains("download=\"brief.pdf\""), "{html}");
+        assert!(
+            html.contains("data:application/pdf;base64,"),
+            "the file itself is not in the export: {html}"
+        );
+        // plain text names the attachment without pretending to be a link
+        assert!(super::plain(&d, "Note").contains("[attachment: brief.pdf]"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
