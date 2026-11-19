@@ -10,7 +10,7 @@ have a key for — and it will tidy a pasted article into blocks or summarise a 
 that menu simply says so.
 
 Built in Rust with [egui](https://github.com/emilk/egui), so it runs as one native window on
-**Linux**, **macOS** and **Windows**.
+**Linux** and **Windows**.
 
 ![NoteCraft](docs/screenshot.png)
 
@@ -19,7 +19,6 @@ Built in Rust with [egui](https://github.com/emilk/egui), so it runs as one nati
 | Platform | How |
 | --- | --- |
 | **Linux** (x86_64, aarch64) | `curl -fsSL https://raw.githubusercontent.com/mjb73/notecraft/main/install.sh \| sh` — or the `.deb` from [Releases](https://github.com/mjb73/notecraft/releases), or the tarball |
-| **macOS** (Apple silicon, Intel) | `.dmg` from [Releases](https://github.com/mjb73/notecraft/releases) — drag NoteCraft to Applications |
 | **Windows** (x64) | `.zip` from [Releases](https://github.com/mjb73/notecraft/releases) — unzip, run `notecraft.exe` |
 
 Each download has a `.sha256` beside it.
@@ -32,8 +31,6 @@ links against whatever glibc you have.
 **The builds are not code-signed by a commercial certificate.** That is what the extra click is
 about:
 
-- **macOS** — the app bundle is signed ad-hoc, so the first launch needs right-click → **Open**
-  (or *System Settings → Privacy & Security → Open Anyway*). After that it starts normally.
 - **Windows** — SmartScreen may say "Windows protected your PC": **More info → Run anyway**.
 - **Linux** — nothing to do; `install.sh` puts the binary in `~/.local/bin` and the desktop entry
   in `~/.local/share/applications`, no root needed.

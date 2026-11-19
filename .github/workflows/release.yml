@@ -3,9 +3,8 @@ name: Release
 # Tag a commit and the downloads appear:
 #   git tag v1.0.0 && git push origin v1.0.0
 #
-# Artifacts: a Linux tarball and .deb, a macOS .dmg per architecture, a Windows .zip, and a
-# .sha256 beside each one. Nothing is code-signed except the macOS bundle, which is signed
-# ad-hoc — see README "Download" for what that means for the user.
+# Artifacts: a Linux tarball and .deb, a Windows .zip, and a
+# .sha256 beside each one. Nothing is code-signed.
 
 on:
   push:
@@ -94,47 +93,6 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  macos:
-    name: macos (${{ matrix.arch }})
-    runs-on: macos-15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: aarch64
-            target: aarch64-apple-darwin
-          - arch: x86_64
-            target: x86_64-apple-darwin
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: macos-${{ matrix.arch }}
-
-      - name: Build
-        run: cargo build --locked --release --target ${{ matrix.target }}
-
-      - name: Bundle and sign
-        run: |
-          V=${GITHUB_REF_NAME#v}
-          chmod +x packaging/macos/make-app.sh
-          packaging/macos/make-app.sh \
-            "target/${{ matrix.target }}/release/notecraft" "$V" "dist"
-          mv "dist/NoteCraft-$V.dmg" "dist/NoteCraft-$V-${{ matrix.arch }}.dmg"
-          ( cd dist && shasum -a 256 "NoteCraft-$V-${{ matrix.arch }}.dmg" \
-              > "NoteCraft-$V-${{ matrix.arch }}.dmg.sha256" )
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-${{ matrix.arch }}
-          path: dist/*
-          if-no-files-found: error
-
   windows:
     name: windows (x86_64)
     runs-on: windows-2022
@@ -190,7 +148,7 @@ jobs:
 
   release:
     name: publish
-    needs: [linux, macos, windows]
+    needs: [linux, windows]
     if: always() && !cancelled()
     runs-on: ubuntu-24.04
     steps:
@@ -214,10 +172,6 @@ jobs:
             ```sh
             curl -fsSL https://raw.githubusercontent.com/mjb73/notecraft/main/install.sh | sh
             ```
-            **macOS** — open the `.dmg` for your Mac (`aarch64` for Apple silicon, `x86_64` for Intel)
-            and drag NoteCraft to Applications. The app is signed ad-hoc, so the first launch needs
-            right-click → Open (or System Settings → Privacy & Security → Open Anyway).
-
             **Windows** — unzip and run `notecraft.exe`. SmartScreen may warn about an unsigned
             download: More info → Run anyway.
 
